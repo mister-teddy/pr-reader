@@ -4,8 +4,34 @@ A Flutter app for reading GitHub pull requests, built to stay smooth on very
 large ones (20k–150k changed lines, thousands of files) on phones, foldables,
 tablets and desktops.
 
-Version 1 is read-only: conversation, reviews and inline review threads,
-commits, and the full diff.
+It covers the conversation, reviews and inline review threads, commits and
+the full diff, plus commenting and "Viewed" marks that sync with github.com.
+
+![Side-by-side diff of flutter/flutter#171703: 1,912 files, 122k lines](docs/screenshots/desktop-split-diff.png)
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/phone-diff.png" alt="Diff on a phone, with wrapped lines and a sticky file header"></td>
+    <td width="33%"><img src="docs/screenshots/phone-file-tree.png" alt="File tree sheet on a phone, following the current file"></td>
+    <td width="33%"><img src="docs/screenshots/phone-conversation.png" alt="Conversation on a phone, with reviewers, checks and labels"></td>
+  </tr>
+  <tr>
+    <td align="center">Diff on a phone</td>
+    <td align="center">File tree</td>
+    <td align="center">Conversation</td>
+  </tr>
+</table>
+
+| Foldable, tree and diff on either side of the hinge | Landscape phone, header hidden while reading |
+| --- | --- |
+| ![Foldable layout split at the hinge](docs/screenshots/foldable-hinge.png) | ![Landscape phone with the header hidden](docs/screenshots/phone-landscape.png) |
+
+| Comment threads in a side panel (dark theme, search) | Commenting on a diff line |
+| --- | --- |
+| ![Dark theme with search hits and the comment panel](docs/screenshots/desktop-dark-comments.png) | ![Comment dialog for a diff line](docs/screenshots/desktop-line-comment.png) |
+
+The phone, foldable and panel screenshots use the synthetic PR from the
+widget tests; the top one is a real PR.
 
 ## Features
 
@@ -20,9 +46,11 @@ commits, and the full diff.
   follows your scroll position, a draggable scrubber that names the file
   under your finger and marks comments and search hits, next/previous file,
   and search across the whole diff.
-- **Review workflow**: "Viewed" marks per file (kept per PR and reset when
-  the file changes again), collapse/expand all, and auto-collapsed lockfiles,
-  generated files and very large diffs.
+- **Review workflow**: "Viewed" marks per file that sync with github.com
+  when your token allows it (kept on the device otherwise), collapse/expand
+  all, and auto-collapsed lockfiles, generated files and very large diffs.
+- **Commenting**: conversation comments, replies in review threads, and new
+  comments on any diff line (hover "+" with a mouse, long-press on touch).
 - **Files GitHub won't diff**: when the API omits a patch because it is too
   large, "Load diff" fetches both versions and computes the diff on-device.
 - **Adaptive layout**:
@@ -65,7 +93,8 @@ Public repositories work without signing in, at GitHub's anonymous limit of
 60 requests per hour. A big PR uses roughly 25 of them. For private repos and
 5,000 requests per hour, add a personal access token in Settings. A classic
 token with `repo` scope works, or a fine-grained token with read access to
-pull requests and contents. The token is stored in the system keychain.
+contents and read and write access to pull requests (write is needed for
+commenting and syncing "Viewed"). The token is stored in the system keychain.
 
 ## Opening links in the app
 
@@ -118,8 +147,9 @@ lib/
   src/ui/home/, settings/   home, repo PR list, settings
 ```
 
-## Not in v1
+## Not yet supported
 
-Writing (comments, reviews, approvals), expanding unchanged context around
-hunks, per-commit diffs, GitHub Enterprise hosts, and OAuth sign-in. OAuth
-needs a registered GitHub OAuth app; for now a personal access token is used.
+Submitting reviews (approve, request changes), multi-line comments, editing
+or deleting comments, expanding unchanged context around hunks, per-commit
+diffs, GitHub Enterprise hosts, and OAuth sign-in. OAuth needs a registered
+GitHub OAuth app; for now a personal access token is used.
