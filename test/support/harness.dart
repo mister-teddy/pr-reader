@@ -105,10 +105,7 @@ Future<TestApp> pumpApp(
               darkTheme: _withFonts(Brightness.dark),
               themeMode: settings.themeMode,
               onGenerateRoute: generateRoute,
-              onGenerateInitialRoutes: (name) => [
-                generateRoute(const RouteSettings(name: '/')),
-                if (name != '/') generateRoute(RouteSettings(name: name)),
-              ],
+              onGenerateInitialRoutes: (name) => initialRoutes(name, settings),
               initialRoute: route,
             ),
           ),

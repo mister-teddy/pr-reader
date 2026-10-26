@@ -9,6 +9,7 @@ import 'package:pr_reader/src/github/pr_ref.dart';
 import 'package:pr_reader/src/ui/diff/diff_controller.dart';
 import 'package:pr_reader/src/ui/diff/diff_rows.dart';
 import 'package:pr_reader/src/ui/diff/files_tab.dart';
+import 'package:pr_reader/src/ui/pr/pr_screen.dart';
 
 import 'support/fake_github.dart';
 import 'support/harness.dart';
@@ -32,6 +33,12 @@ Future<void> _openFiles(WidgetTester tester, TestApp app) async {
   await settle(tester, () => _session(app).pr != null);
   await tester.tap(find.textContaining('Files').first);
   await settle(tester, () => _session(app).filesDone);
+}
+
+/// Everything the app saved, to start the next "launch" from.
+Map<String, Object> _savedPrefs(TestApp app) {
+  final p = app.services.settings.prefs;
+  return {for (final k in p.getKeys()) k: p.get(k)!};
 }
 
 void main() {
@@ -365,5 +372,47 @@ void main() {
     await tester.pump();
     expect(c.isExpanded(0), isFalse);
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('relaunching resumes the open PR where reading stopped', (tester) async {
+    final fake = FakeGitHub(fileCount: 600, seed: 5);
+    final app = await pumpApp(tester, size: const Size(1440, 900), dpr: 1, route: '$_pr/files', fake: fake);
+    await settle(tester, () => _session(app).filesDone, maxRounds: 400);
+    final s = _session(app);
+    final c = _diff(tester);
+    // Read deep into a late file, past its header.
+    final target = s.files.indexWhere((f) => f.lines.length > 40, 500);
+    c.jumpToLine(target, 30);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    final top = c.readingAnchor!;
+    expect(top.path, s.files[target].path);
+    final saved = _savedPrefs(app);
+    expect(saved['last_pr'], _ref.key);
+
+    // Relaunch on a phone (different width, so different pixels) at home.
+    final again = await pumpApp(
+      tester,
+      size: const Size(390, 844),
+      dpr: 3,
+      fake: FakeGitHub(fileCount: 600, seed: 5),
+      prefs: saved,
+    );
+    expect(find.byType(PrScreen), findsOneWidget);
+    await settle(tester, () => _session(again).filesDone, maxRounds: 400);
+    await tester.pump();
+    final c2 = _diff(tester);
+    expect(c2.currentFile.value, target);
+    // The phone shows unified rows, so compare where the saved row lands.
+    expect(c2.readingAnchor!.path, top.path);
+    expect(c2.vertical.offset, closeTo(c2.layout!.resolve(top)!, 1));
+    expect(c2.vertical.offset, greaterThan(c2.layout!.fileOffset(target) + 100));
+    await capture(tester, 'phone_resumed');
+
+    // Going back home means the next launch starts at home.
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(again.services.settings.lastPr, isNull);
+    expect(again.services.settings.readingPosition(_ref)?.diff?.path, top.path);
   });
 }

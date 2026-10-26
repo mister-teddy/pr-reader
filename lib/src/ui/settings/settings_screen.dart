@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/services.dart';
@@ -74,7 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle: Text(
                               settings.tokenInsecure
                                   ? 'Stored in app preferences (system keychain unavailable)'
-                                  : 'Stored in the system keychain',
+                                  : 'Stored in ${_keychainName()}',
                             ),
                             trailing: TextButton(
                               onPressed: () => settings.setToken(null),
@@ -90,9 +91,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text(
                                 'A personal access token lets you read private repositories and raises the rate limit '
-                                'to 5,000 requests per hour. Read-only access is enough: classic tokens need the '
-                                '"repo" scope for private repos; fine-grained tokens need read access to pull requests '
-                                'and contents.',
+                                'to 5,000 requests per hour. Classic tokens need the "repo" scope; fine-grained '
+                                'tokens need read access to contents and read and write access to pull requests, '
+                                'which commenting and syncing "Viewed" marks use.',
                                 style: theme.textTheme.bodyMedium,
                               ),
                               const SizedBox(height: 12),
@@ -251,6 +252,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
+
+String _keychainName() => switch (defaultTargetPlatform) {
+  TargetPlatform.macOS || TargetPlatform.iOS => 'the system keychain',
+  TargetPlatform.android => "Android's secure storage",
+  _ => kIsWeb ? 'browser storage' : 'secure storage',
+};
 
 class _Section extends StatelessWidget {
   const _Section({required this.title, required this.children});

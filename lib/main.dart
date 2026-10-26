@@ -19,6 +19,19 @@ Future<void> main() async {
   final settings = await SettingsController.load();
   final services = AppServices(settings: settings)..refreshViewer();
   runApp(AppScope(services: services, child: const PrReaderApp()));
+  // After the first frame: on macOS the native side registers the widget
+  // channel only once the window exists.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(services.widgets.prune([for (final r in settings.recents) r.ref]));
+    unawaited(services.widgets.setRecents(settings.recents).then((_) => services.backfillWidgets()));
+    // Keep the widget's PR picker in step when recents are removed or cleared.
+    var recents = settings.recents;
+    settings.addListener(() {
+      if (identical(settings.recents, recents)) return;
+      recents = settings.recents;
+      unawaited(services.widgets.setRecents(recents));
+    });
+  });
 }
 
 class PrReaderApp extends StatefulWidget {
@@ -78,14 +91,21 @@ class _PrReaderAppState extends State<PrReaderApp> {
         darkTheme: buildTheme(Brightness.dark),
         themeMode: settings.themeMode,
         onGenerateRoute: generateRoute,
-        // Deep links (e.g. on the web) open the PR with home underneath.
-        onGenerateInitialRoutes: (name) => [
-          generateRoute(const RouteSettings(name: '/')),
-          if (name != '/' && name.isNotEmpty) generateRoute(RouteSettings(name: name)),
-        ],
+        onGenerateInitialRoutes: (name) => initialRoutes(name, settings),
       ),
     );
   }
+}
+
+/// Home, with the PR on top when launched from a deep link (e.g. on the web)
+/// or when a PR was open as the app closed, so reading picks up where it
+/// left off.
+List<Route<void>> initialRoutes(String name, SettingsController settings) {
+  final resume = name == '/' || name.isEmpty ? settings.lastPr?.routePath : name;
+  return [
+    generateRoute(const RouteSettings(name: '/')),
+    if (resume != null) generateRoute(RouteSettings(name: resume)),
+  ];
 }
 
 Route<void> generateRoute(RouteSettings s) {
@@ -100,7 +120,9 @@ Route<void> generateRoute(RouteSettings s) {
       final tab = switch (seg.length > 4 ? seg[4] : '') {
         'files' || 'changes' => PrTab.files,
         'commits' => PrTab.commits,
-        _ => PrTab.conversation,
+        'conversation' => PrTab.conversation,
+        // No tab in the link: resume the one the reader was last on.
+        _ => null,
       };
       page = PrScreen(
         key: ValueKey('${seg[0]}/${seg[1]}#$n'),

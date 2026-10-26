@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../diff/diff_layout.dart';
 import '../github/models.dart';
 import '../github/pr_ref.dart';
 
@@ -43,6 +44,45 @@ class RecentPr {
   }
 }
 
+/// Where the reader was in a PR, so reopening it resumes there, like a
+/// bookmark in an ebook.
+class ReadingPosition {
+  const ReadingPosition({this.tab, this.diff, this.conversation = 0, this.expanded = const {}});
+
+  /// Name of the open tab (a `PrTab`).
+  final String? tab;
+
+  /// The row at the top of the diff. Stored as content rather than pixels,
+  /// so it still lands right with a different window size or wrapping.
+  final RowAnchor? diff;
+
+  final double conversation;
+
+  /// Files the reader explicitly expanded (true) or collapsed (false).
+  final Map<String, bool> expanded;
+
+  Map<String, dynamic> toJson() => {
+    't': ?tab,
+    'd': ?diff?.toJson(),
+    'c': conversation,
+    if (expanded.isNotEmpty) 'e': expanded,
+  };
+
+  static ReadingPosition? fromJson(Object? j) {
+    if (j is! Map<String, dynamic>) return null;
+    try {
+      return ReadingPosition(
+        tab: j['t'] as String?,
+        diff: RowAnchor.fromJson(j['d']),
+        conversation: (j['c'] as num? ?? 0).toDouble(),
+        expanded: {for (final e in (j['e'] as Map? ?? const {}).entries) e.key as String: e.value as bool},
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// User preferences, the GitHub token and recently opened PRs.
 class SettingsController extends ChangeNotifier {
   SettingsController._(this._prefs, this._secure);
@@ -50,6 +90,8 @@ class SettingsController extends ChangeNotifier {
   static const _tokenKey = 'github_token';
   static const _tokenFallbackKey = 'github_token_insecure';
   static const _maxRecents = 30;
+  static const _lastPrKey = 'last_pr';
+  static const _positionPrefix = 'pos:';
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secure;
@@ -166,7 +208,40 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _saveRecents() => _prefs.setString('recents', jsonEncode([for (final r in recents) r.toJson()]));
+  void _saveRecents() {
+    _prefs.setString('recents', jsonEncode([for (final r in recents) r.toJson()]));
+    // Reading positions are kept only for PRs still in the recents list.
+    final keep = {for (final r in recents) '$_positionPrefix${r.ref.key}'};
+    for (final k in _prefs.getKeys().where((k) => k.startsWith(_positionPrefix) && !keep.contains(k)).toList()) {
+      _prefs.remove(k);
+    }
+  }
+
+  /// The PR that was open when the app last closed, reopened on launch.
+  PrRef? get lastPr {
+    final raw = _prefs.getString(_lastPrKey);
+    return raw == null ? null : PrRef.tryParse(raw);
+  }
+
+  void setLastPr(PrRef? ref) {
+    if (ref == null) {
+      _prefs.remove(_lastPrKey);
+    } else {
+      _prefs.setString(_lastPrKey, ref.key);
+    }
+  }
+
+  ReadingPosition? readingPosition(PrRef ref) {
+    try {
+      final raw = _prefs.getString('$_positionPrefix${ref.key}');
+      return raw == null ? null : ReadingPosition.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void saveReadingPosition(PrRef ref, ReadingPosition p) =>
+      _prefs.setString('$_positionPrefix${ref.key}', jsonEncode(p.toJson()));
 
   /// Forgets every "viewed" mark.
   Future<void> clearViewed() async {
