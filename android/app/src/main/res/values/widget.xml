@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">Pinned PR</string>
+    <string name="widget_description">A pull request with your reading progress. Tap to continue reading.</string>
+    <color name="widget_bg">#FFF7F7FC</color>
+    <color name="widget_fg">#FF1B1B21</color>
+    <color name="widget_muted">#FF5E5E6A</color>
+    <color name="widget_accent">#FF4F5BD5</color>
+    <color name="widget_track">#FFE1E1EF</color>
+    <color name="state_open">#FF1F883D</color>
+    <color name="state_draft">#FF6E7781</color>
+    <color name="state_merged">#FF8250DF</color>
+    <color name="state_closed">#FFCF222E</color>
+    <color name="diff_add">#FF1A7F37</color>
+    <color name="diff_del">#FFCF222E</color>
+</resources>

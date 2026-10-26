@@ -404,6 +404,23 @@ class RowAnchor {
   final int a;
   final int b;
   final double delta;
+
+  Map<String, dynamic> toJson() => {'p': path, 'k': kind, 'a': a, 'b': b, 'd': delta};
+
+  static RowAnchor? fromJson(Object? j) {
+    if (j is! Map<String, dynamic>) return null;
+    try {
+      return RowAnchor(
+        path: j['p'] as String,
+        kind: j['k'] as int,
+        a: j['a'] as int,
+        b: j['b'] as int,
+        delta: (j['d'] as num).toDouble(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 class _RowBuffer {

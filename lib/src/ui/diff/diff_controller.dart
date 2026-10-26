@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../data/pr_session.dart';
@@ -33,7 +34,11 @@ class SearchHits {
 /// State of the files view: layout, expansion, search and navigation.
 /// Shared by the diff, the file tree and the toolbars.
 class DiffController extends ChangeNotifier {
-  DiffController(this.session) {
+  /// [resumeAt] and [expanded] come from a saved [ReadingPosition]; the diff
+  /// scrolls to [resumeAt] as soon as its file has loaded.
+  DiffController(this.session, {RowAnchor? resumeAt, Map<String, bool> expanded = const {}})
+    : _resume = resumeAt {
+    _overrides.addAll(expanded);
     session.addListener(_onSessionChanged);
     session.viewed.addListener(_onSessionChanged);
     vertical.addListener(_onScroll);
@@ -50,6 +55,10 @@ class DiffController extends ChangeNotifier {
 
   /// Explicit expand (true) / collapse (false) choices by path.
   final Map<String, bool> _overrides = {};
+
+  /// Saved position still waiting for its file to load. Dropped once reached
+  /// or as soon as the reader scrolls or navigates on their own.
+  RowAnchor? _resume;
 
   LayoutMetrics? _metrics;
   DiffLayout? _layout;
@@ -70,6 +79,18 @@ class DiffController extends ChangeNotifier {
   DiffLayout? get layout => _layout;
   String get query => _query;
 
+  /// Explicit expand/collapse choices, saved with the reading position.
+  Map<String, bool> get overrides => Map.unmodifiable(_overrides);
+
+  /// The row at the top of the diff, or the saved one while it is pending.
+  RowAnchor? get readingAnchor {
+    final l = _layout;
+    if (_resume != null || l == null || vertical.positions.length != 1 || !vertical.position.hasPixels) {
+      return _resume;
+    }
+    return l.anchorAt(vertical.position.pixels);
+  }
+
   void _onSessionChanged() {
     _dirty = true;
     notifyListeners();
@@ -78,6 +99,7 @@ class DiffController extends ChangeNotifier {
   void _onScroll() {
     final l = _layout;
     if (l == null || vertical.positions.length != 1) return;
+    if (_resume != null && vertical.position.userScrollDirection != ScrollDirection.idle) _resume = null;
     final f = l.fileAt(vertical.offset + _currentProbe);
     if (f >= 0) currentFile.value = f;
   }
@@ -117,6 +139,7 @@ class DiffController extends ChangeNotifier {
       }
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tryResume();
       _onScroll();
       if (_whenLaidOut.isNotEmpty && vertical.hasClients) {
         final pending = [..._whenLaidOut];
@@ -127,6 +150,19 @@ class DiffController extends ChangeNotifier {
       }
     });
     return true;
+  }
+
+  void _tryResume() {
+    final anchor = _resume;
+    final l = _layout;
+    if (anchor == null || l == null || !vertical.hasClients) return;
+    final target = l.resolve(anchor);
+    if (target == null) {
+      // Its file isn't loaded yet, or is no longer part of the PR.
+      if (session.filesDone) _resume = null;
+      return;
+    }
+    _scrollTo(target);
   }
 
   /// Runs [action] now if the diff is on screen, or right after its first
@@ -265,6 +301,7 @@ class DiffController extends ChangeNotifier {
 
   void _scrollTo(double offset, {bool animate = false}) {
     if (!vertical.hasClients) return;
+    _resume = null;
     final l = _layout;
     final viewport = vertical.position.viewportDimension;
     final max = l == null ? _maxScroll : (l.totalExtent - viewport).clamp(0.0, double.infinity);

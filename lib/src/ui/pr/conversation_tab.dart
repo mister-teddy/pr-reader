@@ -31,9 +31,10 @@ class _ReviewItem extends _Item {
 /// Description, comments and reviews in time order, with PR details in a
 /// sidebar on wide windows and inline on phones.
 class ConversationTab extends StatelessWidget {
-  const ConversationTab({super.key, required this.session, required this.onShowInDiff});
+  const ConversationTab({super.key, required this.session, required this.onShowInDiff, this.scrollController});
 
   final PrSession session;
+  final ScrollController? scrollController;
   final void Function(ReviewThread) onShowInDiff;
 
   List<_Item> _timeline() {
@@ -111,6 +112,7 @@ class ConversationTab extends StatelessWidget {
 
             final list = SelectionArea(
               child: ListView.separated(
+                controller: scrollController,
                 padding: EdgeInsets.fromLTRB(pad, pad, pad, pad + 24),
                 itemCount: items.length + 3,
                 separatorBuilder: (_, _) => const SizedBox(height: 14),

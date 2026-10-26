@@ -236,7 +236,8 @@ class _Hero extends StatelessWidget {
             for (final (ref, info) in _samples)
               ActionChip(
                 avatar: const Icon(Icons.bolt_rounded, size: 18),
-                label: Text('$ref  ·  $info'),
+                // Phones only have room for the PR reference.
+                label: Text(compact ? ref : '$ref  ·  $info'),
                 onPressed: () => onOpen(ref),
               ),
           ],

@@ -1,3 +1,5 @@
+<img src="assets/icon/macos.png" width="96" alt="PR Reader icon">
+
 # PR Reader
 
 A Flutter app for reading GitHub pull requests, built to stay smooth on very
@@ -30,8 +32,18 @@ the full diff, plus commenting and "Viewed" marks that sync with github.com.
 | --- | --- |
 | ![Dark theme with search hits and the comment panel](docs/screenshots/desktop-dark-comments.png) | ![Comment dialog for a diff line](docs/screenshots/desktop-line-comment.png) |
 
+Widgets for pinned PRs, on Android (light and dark) and macOS (small and
+medium, and the pinned list):
+
+| Android | macOS |
+| --- | --- |
+| <img src="docs/screenshots/android-widget-light.png" width="380" alt="Android widget, light"> | <img src="docs/screenshots/mac-widget-light.png" alt="Small and medium Mac widgets, light"> |
+| <img src="docs/screenshots/android-widget-dark.png" width="380" alt="Android widget, dark"> | <img src="docs/screenshots/mac-widget-dark.png" alt="Small and medium Mac widgets, dark"> |
+
+<img src="docs/screenshots/mac-pinned-light.png" width="388" alt="Pinned pull requests widget, light"> <img src="docs/screenshots/mac-pinned-dark.png" width="388" alt="Pinned pull requests widget, dark">
+
 The phone, foldable and panel screenshots use the synthetic PR from the
-widget tests; the top one is a real PR.
+widget tests; the top one and the widgets show real public PRs.
 
 ## Features
 
@@ -46,6 +58,21 @@ widget tests; the top one is a real PR.
   follows your scroll position, a draggable scrubber that names the file
   under your finger and marks comments and search hits, next/previous file,
   and search across the whole diff.
+- **Picks up where you left off**: like an ebook reader, the app reopens the
+  PR you had open when it closed, on the same tab and at the same line. Each
+  recent PR keeps its own place, so opening it again from the home screen
+  resumes there too.
+- **Widgets**: pin a PR from its ⋮ menu to see its state, title, a progress
+  bar of viewed files, the diff size and the file you'll continue at.
+  Clicking a widget resumes reading.
+  - Android: "Pin to home screen" places a widget. One added from the
+    launcher's widget list shows the last PR you opened.
+  - macOS: "Pin as widget" adds the PR to a pinned list. Add the widgets
+    with right-click on the desktop › Edit Widgets: "Pull request" (pick
+    any pinned or recent PR with Edit Widget) and "Pinned pull requests".
+    Needs macOS 14. Without a development team the app shares widget data
+    through ~/Library/Application Support/de.reonic.prReader.widgets/, since
+    macOS blocks an ad-hoc signed widget from the App Group.
 - **Review workflow**: "Viewed" marks per file that sync with github.com
   when your token allows it (kept on the device otherwise), collapse/expand
   all, and auto-collapsed lockfiles, generated files and very large diffs.

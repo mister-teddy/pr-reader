@@ -15,6 +15,7 @@ class MainFlutterWindow: NSWindow {
     self.title = "PR Reader"
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    WidgetChannel.register(with: flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
   }

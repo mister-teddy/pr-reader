@@ -26,6 +26,7 @@ dev_dependencies:
   flutter_driver:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -35,3 +36,20 @@ flutter:
         - asset: assets/fonts/JetBrainsMono-Regular.ttf
         - asset: assets/fonts/JetBrainsMono-Bold.ttf
           weight: 700
+
+# App icons; sources in assets/icon (SVG, rendered to PNG). Regenerate with
+# `dart run flutter_launcher_icons`.
+flutter_launcher_icons:
+  image_path: assets/icon/full.png
+  android: true
+  adaptive_icon_background: assets/icon/background.png
+  adaptive_icon_foreground: assets/icon/foreground.png
+  ios: true
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: assets/icon/macos.png
+  web:
+    generate: true
+    background_color: "#4338CA"
+    theme_color: "#4338CA"
