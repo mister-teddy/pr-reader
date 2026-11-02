@@ -20,6 +20,7 @@ class CommentComposer extends StatefulWidget {
     this.autofocus = false,
     this.collapsed = false,
     this.onCancel,
+    this.controller,
   });
 
   final Future<void> Function(String body) onSubmit;
@@ -30,6 +31,7 @@ class CommentComposer extends StatefulWidget {
   /// Starts as a one-line "Reply…" field that expands on focus.
   final bool collapsed;
   final VoidCallback? onCancel;
+  final TextEditingController? controller;
 
   @override
   State<CommentComposer> createState() => _CommentComposerState();
@@ -41,7 +43,7 @@ bool get _apple => switch (defaultTargetPlatform) {
 };
 
 class _CommentComposerState extends State<CommentComposer> {
-  final _text = TextEditingController();
+  late final _text = widget.controller ?? TextEditingController();
   final _focus = FocusNode();
   bool _preview = false;
   bool _sending = false;
@@ -55,12 +57,15 @@ class _CommentComposerState extends State<CommentComposer> {
     _focus.addListener(() {
       if (_focus.hasFocus && !_expanded) setState(() => _expanded = true);
     });
-    _text.addListener(() => setState(() {}));
+    _text.addListener(_onText);
   }
+
+  void _onText() => setState(() {});
 
   @override
   void dispose() {
-    _text.dispose();
+    _text.removeListener(_onText);
+    if (widget.controller == null) _text.dispose();
     _focus.dispose();
     super.dispose();
   }

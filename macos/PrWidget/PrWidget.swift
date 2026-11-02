@@ -45,13 +45,16 @@ struct PrSnapshot: Codable {
 }
 
 enum Store {
+  /// The App Group, only usable with a development team (see
+  /// Runner/WidgetChannel.swift).
   static let defaults: UserDefaults? = {
-    guard let group = Bundle.main.object(forInfoDictionaryKey: "PRReaderAppGroup") as? String else { return nil }
+    guard let group = Bundle.main.object(forInfoDictionaryKey: "PRReaderAppGroup") as? String,
+      !group.hasPrefix("de.reonic.")
+    else { return nil }
     return UserDefaults(suiteName: group)
   }()
 
-  /// The app's copy outside the containers, readable when the App Group
-  /// isn't (ad-hoc signing). See Runner/WidgetChannel.swift.
+  /// The app's copy outside the containers.
   static var exported: [String: Any] {
     let home = getpwuid(getuid()).flatMap { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
     let url = URL(fileURLWithPath: home)

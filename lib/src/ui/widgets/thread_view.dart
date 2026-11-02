@@ -290,7 +290,7 @@ Future<void> showThreads(
       ),
     );
   }
-  return showDialog<void>(
+  return showInWindowDialog<void>(
     context: context,
     builder: (context) => Dialog(
       clipBehavior: Clip.antiAlias,

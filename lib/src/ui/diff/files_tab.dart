@@ -105,6 +105,8 @@ class _FilesTabState extends State<FilesTab> {
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
     if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
+    // Keys typed into a comment box in the diff bubble up here too.
+    if (!node.hasPrimaryFocus) return KeyEventResult.ignored;
     final k = e.logicalKey;
     final shift = HardwareKeyboard.instance.isShiftPressed;
     final mod = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
@@ -192,7 +194,7 @@ class _FilesTabState extends State<FilesTab> {
       onKeyEvent: _onKey,
       child: Listener(
         onPointerDown: (_) {
-          if (!_searchFocus.hasFocus) _diffFocus.requestFocus();
+          if (!_searchFocus.hasFocus && !_diffFocus.hasFocus) _diffFocus.requestFocus();
         },
         child: DiffView(
           controller: c,

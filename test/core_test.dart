@@ -95,6 +95,10 @@ void main() {
       );
       expect(routeForLink(Uri.parse('other://github.com/a/b/pull/1')), isNull);
       expect(
+        routeForLink(Uri.parse('pr://github.com/acme-co/monorepo/pull/17056/file?path=lib/a%20b.dart&window=new')),
+        '$pr/file?path=lib%2Fa+b.dart',
+      );
+      expect(
         routeForLink(Uri.parse('https://github.com/acme-co/monorepo/pull/17056/changes')),
         '$pr/files',
       );

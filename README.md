@@ -62,6 +62,12 @@ widget tests; the top one and the widgets show real public PRs.
   PR you had open when it closed, on the same tab and at the same line. Each
   recent PR keeps its own place, so opening it again from the home screen
   resumes there too.
+- **Separate windows (macOS)**: "New window" (⌘N) in a PR's ⋮ menu forks
+  the PR into a second window that starts where you are, and "Open in new
+  window" in a file's ⋮ menu opens just that file. Windows share the loaded
+  PR, so Viewed marks and comments show up in all of them. This uses
+  Flutter's experimental windowing API; turn off "Separate windows" in
+  Settings to go back to a single window.
 - **Widgets**: pin a PR from its ⋮ menu to see its state, title, a progress
   bar of viewed files, the diff size and the file you'll continue at.
   Clicking a widget resumes reading.
@@ -131,6 +137,9 @@ PR links map one to one, and `/changes` or `/files` links open the Files tab:
 ```sh
 open "pr://github.com/owner/repo/pull/123/changes"
 ```
+
+`pr://github.com/owner/repo/pull/123/file?path=lib/main.dart` opens a single
+file, and on macOS adding `window=new` to any link opens it in a new window.
 
 No app can claim `https://github.com` links on macOS, because those always go
 to the default browser. To route PR links automatically, use a link router

@@ -101,6 +101,10 @@ class SettingsController extends ChangeNotifier {
   DiffLayoutPref diffLayout = DiffLayoutPref.auto;
   WrapPref wrap = WrapPref.auto;
   bool syntaxHighlight = true;
+
+  /// macOS: open PRs and files in separate windows. Read by the native
+  /// runner at launch (as `flutter.multi_window`), so it applies on restart.
+  bool multiWindow = true;
   String? token;
 
   /// True when the OS keychain was unavailable and the token sits in plain
@@ -119,6 +123,7 @@ class SettingsController extends ChangeNotifier {
     s.diffLayout = DiffLayoutPref.values.asNameMap()[prefs.getString('diff_layout')] ?? DiffLayoutPref.auto;
     s.wrap = WrapPref.values.asNameMap()[prefs.getString('wrap')] ?? WrapPref.auto;
     s.syntaxHighlight = prefs.getBool('syntax') ?? true;
+    s.multiWindow = prefs.getBool('multi_window') ?? true;
     try {
       s.token = await secure.read(key: _tokenKey);
     } catch (_) {
@@ -162,6 +167,12 @@ class SettingsController extends ChangeNotifier {
   void setSyntaxHighlight(bool v) {
     syntaxHighlight = v;
     _prefs.setBool('syntax', v);
+    notifyListeners();
+  }
+
+  void setMultiWindow(bool v) {
+    multiWindow = v;
+    _prefs.setBool('multi_window', v);
     notifyListeners();
   }
 

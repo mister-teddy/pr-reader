@@ -7,18 +7,36 @@ import 'package:flutter/material.dart';
 import 'src/app/links.dart';
 import 'src/app/services.dart';
 import 'src/app/settings.dart';
+import 'src/app/windows.dart';
 import 'src/github/pr_ref.dart';
 import 'src/ui/home/home_screen.dart';
+import 'src/ui/diff/file_window.dart';
 import 'src/ui/home/repo_pulls_screen.dart';
 import 'src/ui/pr/pr_screen.dart';
 import 'src/ui/settings/settings_screen.dart';
 import 'src/ui/theme.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  // With "Separate windows" on, the macOS runner starts without a window and
+  // passes --windows; the app then opens its own.
+  final windowed = enableWindowing(wanted: args.contains('--windows'));
   WidgetsFlutterBinding.ensureInitialized();
   final settings = await SettingsController.load();
   final services = AppServices(settings: settings)..refreshViewer();
-  runApp(AppScope(services: services, child: const PrReaderApp()));
+  if (windowed) {
+    final windows = AppWindows(
+      buildApp: (route, arguments, navigator) =>
+          PrReaderApp(initialRoute: route, arguments: arguments, navigatorKey: navigator, handleLinks: false),
+    );
+    runWidget(
+      AppScope(
+        services: services,
+        child: WindowsRoot(windows: windows, initialRoute: '/'),
+      ),
+    );
+  } else {
+    runApp(AppScope(services: services, child: const PrReaderApp()));
+  }
   // After the first frame: on macOS the native side registers the widget
   // channel only once the window exists.
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -35,14 +53,23 @@ Future<void> main() async {
 }
 
 class PrReaderApp extends StatefulWidget {
-  const PrReaderApp({super.key});
+  const PrReaderApp({super.key, this.initialRoute, this.arguments, this.navigatorKey, this.handleLinks = true});
+
+  final String? initialRoute;
+
+  final Object? arguments;
+  final GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Whether this app opens links from the OS. With separate windows the
+  /// window list handles them instead.
+  final bool handleLinks;
 
   @override
   State<PrReaderApp> createState() => _PrReaderAppState();
 }
 
 class _PrReaderAppState extends State<PrReaderApp> {
-  final _navigator = GlobalKey<NavigatorState>();
+  late final _navigator = widget.navigatorKey ?? GlobalKey<NavigatorState>();
   StreamSubscription<Uri>? _links;
   String? _lastLink;
   DateTime _lastLinkAt = DateTime(0);
@@ -51,7 +78,7 @@ class _PrReaderAppState extends State<PrReaderApp> {
   void initState() {
     super.initState();
     // On the web the browser URL already drives the initial route.
-    if (!kIsWeb) _links = AppLinks().uriLinkStream.listen(_openLink, onError: (_) {});
+    if (!kIsWeb && widget.handleLinks) _links = AppLinks().uriLinkStream.listen(_openLink, onError: (_) {});
   }
 
   @override
@@ -90,8 +117,9 @@ class _PrReaderAppState extends State<PrReaderApp> {
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
         themeMode: settings.themeMode,
+        initialRoute: widget.initialRoute,
         onGenerateRoute: generateRoute,
-        onGenerateInitialRoutes: (name) => initialRoutes(name, settings),
+        onGenerateInitialRoutes: (name) => initialRoutes(name, settings, arguments: widget.arguments),
       ),
     );
   }
@@ -100,11 +128,14 @@ class _PrReaderAppState extends State<PrReaderApp> {
 /// Home, with the PR on top when launched from a deep link (e.g. on the web)
 /// or when a PR was open as the app closed, so reading picks up where it
 /// left off.
-List<Route<void>> initialRoutes(String name, SettingsController settings) {
+List<Route<void>> initialRoutes(String name, SettingsController settings, {Object? arguments}) {
+  if (Uri.tryParse(name)?.pathSegments.contains('file') ?? false) {
+    return [generateRoute(RouteSettings(name: name, arguments: arguments))];
+  }
   final resume = name == '/' || name.isEmpty ? settings.lastPr?.routePath : name;
   return [
     generateRoute(const RouteSettings(name: '/')),
-    if (resume != null) generateRoute(RouteSettings(name: resume)),
+    if (resume != null) generateRoute(RouteSettings(name: resume, arguments: arguments)),
   ];
 }
 
@@ -116,7 +147,10 @@ Route<void> generateRoute(RouteSettings s) {
     page = const SettingsScreen();
   } else if (seg.length >= 4 && (seg[2] == 'pull' || seg[2] == 'pulls')) {
     final n = int.tryParse(seg[3]);
-    if (n != null) {
+    final path = uri.queryParameters['path'];
+    if (n != null && seg.length > 4 && seg[4] == 'file' && path != null) {
+      page = FileWindowScreen(prRef: PrRef(seg[0], seg[1], n), path: path);
+    } else if (n != null) {
       final tab = switch (seg.length > 4 ? seg[4] : '') {
         'files' || 'changes' => PrTab.files,
         'commits' => PrTab.commits,
@@ -128,6 +162,7 @@ Route<void> generateRoute(RouteSettings s) {
         key: ValueKey('${seg[0]}/${seg[1]}#$n'),
         prRef: PrRef(seg[0], seg[1], n),
         initialTab: tab,
+        resumeFrom: s.arguments is ReadingPosition ? s.arguments as ReadingPosition : null,
       );
     }
   } else if (seg.length == 2) {

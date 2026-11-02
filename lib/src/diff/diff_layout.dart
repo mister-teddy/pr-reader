@@ -31,6 +31,9 @@ abstract final class RowKind {
   static const comments = 5;
   static const fileEnd = 6;
   static const listEnd = 7;
+
+  /// A new comment being written on a line; `a` = line index.
+  static const composer = 8;
 }
 
 enum NoticeKind { hiddenLarge, hiddenGenerated, tooLarge, loading, failed, noTextDiff, noChanges }
@@ -81,6 +84,7 @@ class LayoutMetrics {
     this.hunkExtent = 30,
     this.noticeExtent = 64,
     this.commentsExtent = 40,
+    this.composerExtent = 236,
     this.fileEndExtent = 4,
     this.listEndExtent = 140,
   });
@@ -99,6 +103,7 @@ class LayoutMetrics {
   final double hunkExtent;
   final double noticeExtent;
   final double commentsExtent;
+  final double composerExtent;
   final double fileEndExtent;
   final double listEndExtent;
 
@@ -244,7 +249,7 @@ class DiffLayout {
           final first = rowOfLine(f, hunks[anchor.a].start);
           if (first > 0) row = first - 1;
         }
-      case RowKind.comments:
+      case RowKind.comments || RowKind.composer:
         final line = rowOfLine(f, anchor.a);
         if (line >= 0) {
           row = line;
@@ -263,6 +268,7 @@ class DiffLayout {
     required LayoutMetrics metrics,
     required FileBody Function(int fileIndex) bodyOf,
     required Map<String, FileThreads> threads,
+    ({int file, int line})? composer,
   }) {
     final rows = _RowBuffer();
     final headerRow = Int32List(files.length);
@@ -319,6 +325,12 @@ class DiffLayout {
         }
       }
 
+      void composerAfter(int lineIndex) {
+        if (composer != null && composer.file == f && composer.line == lineIndex) {
+          rows.add(RowKind.composer, f, lineIndex, 0, m.composerExtent);
+        }
+      }
+
       for (var h = 0; h < df.hunks.length; h++) {
         final hunk = df.hunks[h];
         rows.add(RowKind.hunk, f, h, 0, m.hunkExtent);
@@ -329,6 +341,7 @@ class DiffLayout {
             rows.add(RowKind.line, f, i, -1, segs(l) * lh);
             lineCount++;
             commentsAfter(l, i);
+            composerAfter(i);
           }
           continue;
         }
@@ -343,6 +356,7 @@ class DiffLayout {
             rows.add(RowKind.split, f, i, i, segs(l) * lh);
             lineCount++;
             commentsAfter(l, i);
+            composerAfter(i);
             i++;
             continue;
           }
@@ -367,6 +381,8 @@ class DiffLayout {
             lineCount++;
             if (li >= 0) commentsAfter(lines[li], li, right: false);
             if (ri >= 0) commentsAfter(lines[ri], ri, left: false);
+            if (li >= 0) composerAfter(li);
+            if (ri >= 0) composerAfter(ri);
           }
         }
       }

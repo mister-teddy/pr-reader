@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pr_reader/src/data/pr_session.dart';
 import 'package:pr_reader/src/data/viewed_state.dart';
@@ -26,6 +27,8 @@ final _vertical = find
 /// Whether the in-list (not sticky) header of file [i] is built.
 bool _headerBuilt(int i) =>
     find.byWidgetPredicate((w) => w is FileHeader && w.index == i && !w.elevated).evaluate().isNotEmpty;
+
+final _lineComposer = find.ancestor(of: find.textContaining('Comment on line'), matching: find.byType(TextField));
 
 DiffController _diff(WidgetTester tester) => tester.widget<FilesTab>(find.byType(FilesTab)).controller;
 
@@ -284,8 +287,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('Comment on line'));
     await tester.pumpAndSettle();
-    await capture(tester, 'desktop_line_comment_dialog');
-    await tester.enterText(find.widgetWithText(TextField, 'Leave a comment'), 'Nit: rename this.');
+    await capture(tester, 'desktop_line_comment');
+    expect(find.byType(Dialog), findsNothing);
+    // Typing in the box must not trigger the diff's shortcuts (space pages
+    // down, j jumps to the next file).
+    final offset = _diff(tester).vertical.offset;
+    await tester.tap(_lineComposer);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
+    await tester.pumpAndSettle();
+    expect(_diff(tester).vertical.offset, offset);
+    await tester.enterText(_lineComposer, 'Nit: rename this.');
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Comment'));
     await settle(tester, () => fake.posted.length == 3, maxRounds: 30);
@@ -293,7 +306,7 @@ void main() {
     expect(fake.posted.last, endsWith(':Nit: rename this.'));
     expect(s.threads!.length, threadsBefore + 1);
     await tester.pumpAndSettle();
-    expect(find.text('Comment posted'), findsOneWidget);
+    expect(_diff(tester).draft, isNull);
     expect(find.textContaining('Nit: rename this.'), findsWidgets, reason: 'new thread marker in the diff');
 
     // Failures keep the text and explain why.
@@ -302,7 +315,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('Comment on line'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'Leave a comment'), 'Will fail');
+    await tester.enterText(_lineComposer, 'Will fail');
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Comment'));
     await settle(tester, () => find.textContaining('not accessible').evaluate().isNotEmpty, maxRounds: 30);

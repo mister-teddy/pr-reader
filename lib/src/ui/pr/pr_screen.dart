@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/home_widgets.dart';
 import '../../app/services.dart';
 import '../../app/settings.dart';
+import '../../app/windows.dart';
 import '../../data/pr_session.dart';
 import '../../github/models.dart';
 import '../../github/pr_ref.dart';
@@ -18,12 +20,15 @@ import 'conversation_tab.dart';
 enum PrTab { conversation, commits, files }
 
 class PrScreen extends StatefulWidget {
-  const PrScreen({super.key, required this.prRef, this.initialTab});
+  const PrScreen({super.key, required this.prRef, this.initialTab, this.resumeFrom});
 
   final PrRef prRef;
 
   /// The tab to open. Null resumes the tab the reader was last on.
   final PrTab? initialTab;
+
+  /// Where to start instead of the saved position, e.g. in a forked window.
+  final ReadingPosition? resumeFrom;
 
   @override
   State<PrScreen> createState() => _PrScreenState();
@@ -51,6 +56,11 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
   bool _autoHidden = false;
   bool _recorded = false;
 
+  /// How many screens show each PR, across windows. The PR to reopen on
+  /// launch is cleared only when the last of them closes.
+  static final Map<PrRef, int> _open = {};
+  void Function(String)? _setTitle;
+
   /// Picks up "Viewed" changes made on github.com while the app was away,
   /// and saves the reading position before it goes.
   AppLifecycleListener? _lifecycle;
@@ -66,7 +76,9 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
           if (mounted && p.contains(widget.prRef)) setState(() => _pinned = true);
         });
       }
-      _saved = _settings.readingPosition(widget.prRef);
+      _saved = widget.resumeFrom ?? _settings.readingPosition(widget.prRef);
+      _open[widget.prRef] = (_open[widget.prRef] ?? 0) + 1;
+      _setTitle = windowTitleSetter(context);
       final tab = widget.initialTab ?? PrTab.values.asNameMap()[_saved?.tab] ?? PrTab.conversation;
       _tabs = TabController(length: PrTab.values.length, vsync: this, initialIndex: tab.index)
         ..addListener(_onTab);
@@ -86,14 +98,21 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
       _onSession();
     }
     // Whichever PR is on top is the one to reopen on the next launch.
-    if (ModalRoute.of(context)?.isCurrent ?? false) _settings.setLastPr(widget.prRef);
+    if (ModalRoute.of(context)?.isCurrent ?? false) {
+      _settings.setLastPr(widget.prRef);
+      final title = _session?.pr?.title;
+      if (title != null) _setTitle?.call(title);
+    }
   }
 
   @override
   void dispose() {
     _savePosition();
+    final open = (_open[widget.prRef] ?? 1) - 1;
+    open > 0 ? _open[widget.prRef] = open : _open.remove(widget.prRef);
     // Leaving the PR (back to home) means the next launch starts at home.
-    if (_settings.lastPr == widget.prRef) _settings.setLastPr(null);
+    if (open == 0 && _settings.lastPr == widget.prRef) _settings.setLastPr(null);
+    _setTitle?.call('PR Reader');
     _saveTimer?.cancel();
     _lifecycle?.dispose();
     _session?.removeListener(_onSession);
@@ -113,6 +132,7 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
     final pr = _session?.pr;
     if (pr != null && !_recorded) {
       _recorded = true;
+      _setTitle?.call(pr.title);
       _settings.addRecent(pr);
       _widgets.setRecents(_settings.recents);
     }
@@ -148,20 +168,28 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
     _saveTimer = Timer(const Duration(milliseconds: 600), _savePosition);
   }
 
-  void _savePosition() {
-    _saveTimer?.cancel();
-    if (_session?.pr == null) return;
+  ReadingPosition _currentPosition() {
     final conversation = _conversation.hasClients && _resumeConversation == null
         ? _conversation.offset
         : _resumeConversation ?? _saved?.conversation ?? 0;
-    _saved = ReadingPosition(
+    return ReadingPosition(
       tab: PrTab.values[_tabs.index].name,
       diff: _diff?.readingAnchor ?? _saved?.diff,
       conversation: conversation,
       expanded: _diff?.overrides ?? _saved?.expanded ?? const {},
     );
+  }
+
+  void _savePosition() {
+    _saveTimer?.cancel();
+    if (_session?.pr == null) return;
+    _saved = _currentPosition();
     _settings.saveReadingPosition(widget.prRef, _saved!);
     _widgets.update(_session!, readingFile: _saved!.diff?.path);
+  }
+
+  void _newWindow() {
+    AppWindows.maybeOf(context)?.open(widget.prRef.routePath, arguments: _currentPosition());
   }
 
   Future<void> _pinToHomeScreen() async {
@@ -244,7 +272,8 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
         final size = MediaQuery.sizeOf(context);
         final autoHide = size.width < 600 || size.height < 500;
         final hideHeader = filesTab && (_immersive || (autoHide && _autoHidden));
-        return Scaffold(
+        final windows = AppWindows.maybeOf(context) != null;
+        final scaffold = Scaffold(
           body: SafeArea(
             bottom: false,
             child: Column(
@@ -260,6 +289,7 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
                           tabs: _tabs,
                           pinned: _pinned,
                           onPin: _pinToHomeScreen,
+                          onNewWindow: windows ? _newWindow : null,
                         ),
                 ),
                 Expanded(
@@ -291,6 +321,11 @@ class _PrScreenState extends State<PrScreen> with SingleTickerProviderStateMixin
             ),
           ),
         );
+        if (!windows) return scaffold;
+        return CallbackShortcuts(
+          bindings: {const SingleActivator(LogicalKeyboardKey.keyN, meta: true): _newWindow},
+          child: Focus(autofocus: true, child: scaffold),
+        );
       },
     );
   }
@@ -303,6 +338,7 @@ class _Header extends StatelessWidget {
     required this.tabs,
     required this.pinned,
     required this.onPin,
+    required this.onNewWindow,
   });
 
   final PullRequest pr;
@@ -310,6 +346,7 @@ class _Header extends StatelessWidget {
   final TabController tabs;
   final bool pinned;
   final VoidCallback onPin;
+  final VoidCallback? onNewWindow;
 
   @override
   Widget build(BuildContext context) {
@@ -401,6 +438,8 @@ class _Header extends StatelessWidget {
                         copyText(context, pr.htmlUrl, message: 'Link copied');
                       case 'pin':
                         onPin();
+                      case 'window':
+                        onNewWindow?.call();
                       case 'settings':
                         Navigator.pushNamed(context, '/settings');
                     }
@@ -408,6 +447,7 @@ class _Header extends StatelessWidget {
                   itemBuilder: (context) => [
                     const PopupMenuItem(value: 'open', child: Text('Open on GitHub')),
                     const PopupMenuItem(value: 'copy', child: Text('Copy link')),
+                    if (onNewWindow != null) const PopupMenuItem(value: 'window', child: Text('New window  ⌘N')),
                     if (HomeWidgets.supported)
                       PopupMenuItem(
                         value: 'pin',

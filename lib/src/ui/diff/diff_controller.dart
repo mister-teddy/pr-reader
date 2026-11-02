@@ -17,6 +17,18 @@ const kAutoCollapseLines = 1500;
 /// is "current".
 const _currentProbe = 64.0;
 
+/// Kept here so the text survives its row scrolling out of view.
+class LineDraft {
+  LineDraft(this.path, this.line);
+
+  final String path;
+  final int line;
+  final text = TextEditingController();
+
+  /// Focus the box when it opens, not each time its row is rebuilt.
+  bool focused = false;
+}
+
 class SearchHits {
   SearchHits(this.query, this.file, this.line, this.start, {required this.capped});
 
@@ -35,8 +47,9 @@ class SearchHits {
 /// Shared by the diff, the file tree and the toolbars.
 class DiffController extends ChangeNotifier {
   /// [resumeAt] and [expanded] come from a saved [ReadingPosition]; the diff
-  /// scrolls to [resumeAt] as soon as its file has loaded.
-  DiffController(this.session, {RowAnchor? resumeAt, Map<String, bool> expanded = const {}})
+  /// scrolls to [resumeAt] as soon as its file has loaded. With [onlyPath]
+  /// the diff shows just that file.
+  DiffController(this.session, {RowAnchor? resumeAt, Map<String, bool> expanded = const {}, this.onlyPath})
     : _resume = resumeAt {
     _overrides.addAll(expanded);
     session.addListener(_onSessionChanged);
@@ -47,6 +60,7 @@ class DiffController extends ChangeNotifier {
   static const maxHits = 20000;
 
   final PrSession session;
+  final String? onlyPath;
   final ScrollController vertical = ScrollController();
   final ScrollController horizontal = ScrollController();
 
@@ -66,6 +80,8 @@ class DiffController extends ChangeNotifier {
   bool _dirty = true;
   int _builtRevision = -1;
 
+  LineDraft? draft;
+
   SearchHits? hits;
   int currentHit = -1;
   Timer? _searchDebounce;
@@ -75,7 +91,20 @@ class DiffController extends ChangeNotifier {
   Float64List commentMarks = Float64List(0);
   Float64List hitMarks = Float64List(0);
 
-  List<DiffFile> get files => session.files;
+  List<DiffFile> get files {
+    if (onlyPath == null) return session.files;
+    if (_onlyRevision != session.revision) {
+      _onlyRevision = session.revision;
+      _only = [
+        for (final f in session.files)
+          if (f.path == onlyPath) f,
+      ];
+    }
+    return _only;
+  }
+
+  List<DiffFile> _only = const [];
+  int _onlyRevision = -1;
   DiffLayout? get layout => _layout;
   String get query => _query;
 
@@ -120,11 +149,14 @@ class DiffController extends ChangeNotifier {
     if (m == null) return false;
     if (!_dirty && _builtRevision == session.revision && _layout != null) return false;
     final old = _layout;
+    final d = draft;
+    final draftFile = d == null ? -1 : files.indexWhere((f) => f.path == d.path);
     final next = DiffLayout.build(
       files: List.unmodifiable(files),
       metrics: m,
       bodyOf: bodyOf,
       threads: session.threadsByPath,
+      composer: draftFile < 0 ? null : (file: draftFile, line: d!.line),
     );
     _layout = next;
     _dirty = false;
@@ -288,6 +320,37 @@ class DiffController extends ChangeNotifier {
     _dirty = true;
     ensureLayout();
     notifyListeners();
+  }
+
+  void openComposer(int file, int line) {
+    final path = files[file].path;
+    if (draft?.path == path && draft?.line == line) return;
+    draft?.text.dispose();
+    draft = LineDraft(path, line);
+    _relayoutAndNotify();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealComposer());
+  }
+
+  void closeComposer() {
+    draft?.text.dispose();
+    draft = null;
+    _relayoutAndNotify();
+  }
+
+  void _revealComposer() {
+    final l = _layout;
+    if (l == null || !vertical.hasClients) return;
+    var row = -1;
+    for (var r = 0; r < l.length; r++) {
+      if (l.kind[r] == RowKind.composer) {
+        row = r;
+        break;
+      }
+    }
+    if (row < 0) return;
+    final p = vertical.position;
+    final bottom = l.offsets[row] + l.extentOf(row) + 16;
+    if (bottom > p.pixels + p.viewportDimension) _scrollTo(bottom - p.viewportDimension, animate: true);
   }
 
   void loadFullDiff(int i) {
@@ -475,6 +538,7 @@ class DiffController extends ChangeNotifier {
 
   @override
   void dispose() {
+    draft?.text.dispose();
     _searchDebounce?.cancel();
     session.removeListener(_onSessionChanged);
     session.viewed.removeListener(_onSessionChanged);

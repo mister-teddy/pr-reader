@@ -202,6 +202,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: settings.syntaxHighlight,
                         onChanged: settings.setSyntaxHighlight,
                       ),
+                      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS)
+                        SwitchListTile(
+                          title: const Text('Separate windows'),
+                          subtitle: const Text(
+                            'Open PRs and single files in their own windows (⌘N). Experimental; '
+                            'takes effect after restarting the app.',
+                          ),
+                          value: settings.multiWindow,
+                          onChanged: settings.setMultiWindow,
+                        ),
                     ],
                   ),
                   _Section(

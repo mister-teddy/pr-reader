@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../app/windows.dart';
 import '../../data/pr_session.dart';
 import '../../diff/diff_layout.dart';
 import '../../diff/diff_models.dart';
@@ -11,10 +12,10 @@ import '../../diff/text_metrics.dart';
 import '../../github/models.dart';
 import '../adaptive.dart';
 import '../theme.dart';
+import '../widgets/comment_composer.dart';
 import '../widgets/common.dart';
 import 'code_spans.dart';
 import 'diff_controller.dart';
-import 'line_comment.dart';
 
 typedef OpenThreads = void Function(List<ReviewThread> threads, String title);
 
@@ -71,6 +72,7 @@ Widget buildDiffRow(DiffRowContext ctx, int index) {
     RowKind.split => _SplitRow(ctx: ctx, file: f, left: l.a[index], right: l.b[index]),
     RowKind.notice => _pinned(ctx, _NoticeRow(ctx: ctx, file: f, kind: NoticeKind.values[l.a[index]])),
     RowKind.comments => _pinned(ctx, _CommentsRow(ctx: ctx, file: f, anchorKey: l.b[index])),
+    RowKind.composer => _pinned(ctx, _ComposerRow(ctx: ctx, file: f, line: l.a[index])),
     RowKind.fileEnd => DecoratedBox(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: ctx.scheme.outlineVariant)),
@@ -359,11 +361,19 @@ class _FileMenu extends StatelessWidget {
             c.loadFullDiff(index);
           case 'comments':
             ctx.openThreads(ctx.session.threadsByPath[f.path]!.all, f.name);
+          case 'window':
+            AppWindows.maybeOf(context)?.open(
+              '${ctx.session.ref.routePath}/file?path=${Uri.encodeQueryComponent(f.path)}',
+              size: const Size(1100, 820),
+              title: f.name,
+            );
         }
       },
       itemBuilder: (context) => [
         PopupMenuItem(value: 'toggle', child: Text(expanded ? 'Collapse file' : 'Expand file')),
         const PopupMenuItem(value: 'copy', child: Text('Copy path')),
+        if (AppWindows.maybeOf(context) != null && c.onlyPath == null)
+          const PopupMenuItem(value: 'window', child: Text('Open in new window')),
         if (ctx.session.pr != null) const PopupMenuItem(value: 'open', child: Text('View file on GitHub')),
         if (f.state == PatchState.tooLarge || f.state == PatchState.failed)
           const PopupMenuItem(value: 'full', child: Text('Load full diff')),
@@ -494,6 +504,54 @@ class _NoticeRow extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Deleted lines are commented on the base side, other lines on the head.
+class _ComposerRow extends StatelessWidget {
+  const _ComposerRow({required this.ctx, required this.file, required this.line});
+
+  final DiffRowContext ctx;
+  final int file;
+  final int line;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ctx.controller;
+    final draft = c.draft;
+    if (draft == null) return const SizedBox.shrink();
+    final f = ctx.files[file];
+    final l = f.lines[line];
+    final left = l.kind == LineKind.del;
+    final autofocus = !draft.focused;
+    draft.focused = true;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ctx.scheme.surface,
+        border: Border.all(color: ctx.scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SingleChildScrollView(
+        child: CommentComposer(
+          key: ObjectKey(draft),
+          controller: draft.text,
+          autofocus: autofocus,
+          hint: 'Comment on line ${left ? l.oldNo : l.newNo}',
+          onCancel: c.closeComposer,
+          onSubmit: (body) async {
+            await ctx.session.commentOnLine(
+              path: f.path,
+              line: left ? l.oldNo : l.newNo,
+              side: left ? DiffSide.left : DiffSide.right,
+              body: body,
+            );
+            c.closeComposer();
+          },
+        ),
       ),
     );
   }
@@ -841,12 +899,7 @@ class _LineGesturesState extends State<_LineGestures> {
         (l.kind == LineKind.del ? l.oldNo : l.newNo) > 0;
   }
 
-  void _comment(BuildContext context) => showLineComment(
-    context,
-    session: ctx.session,
-    file: ctx.files[file],
-    line: ctx.files[file].lines[line],
-  );
+  void _comment(BuildContext context) => ctx.controller.openComposer(file, line);
 
   Future<void> _menu(BuildContext context, Offset global) async {
     final f = ctx.files[file];

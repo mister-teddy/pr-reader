@@ -6,11 +6,22 @@ import WidgetKit
 /// they change. See lib/src/app/home_widgets.dart.
 ///
 /// The data goes to the App Group and, as a copy, to a JSON file in
-/// ~/Library/Application Support/de.reonic.prReader.widgets/. Without a
-/// development team the app and the extension are signed ad hoc, and macOS
-/// blocks the extension from the group container as another app's data; the
-/// file (granted by a sandbox exception) works either way.
+/// ~/Library/Application Support/de.reonic.prReader.widgets/, which the
+/// extension can read through a sandbox exception.
+///
+/// Without a development team the group ID has no team prefix. macOS then
+/// treats the group as another app's data: it asks for permission on every
+/// build and never lets the extension in. So the group is used only with a
+/// team, and the app keeps its copy in its own defaults otherwise.
 enum WidgetChannel {
+  /// The App Group's defaults when the app is signed with a team.
+  static func groupDefaults() -> UserDefaults? {
+    guard let group = Bundle.main.object(forInfoDictionaryKey: "PRReaderAppGroup") as? String,
+      !group.hasPrefix("de.reonic.")
+    else { return nil }
+    return UserDefaults(suiteName: group)
+  }
+
   static let exportURL: URL = {
     // NSHomeDirectory() is the sandbox container; the exception is relative
     // to the real home folder.
@@ -38,11 +49,15 @@ enum WidgetChannel {
   }
 
   static func register(with messenger: FlutterBinaryMessenger) {
-    let defaults = (Bundle.main.object(forInfoDictionaryKey: "PRReaderAppGroup") as? String)
-      .flatMap { UserDefaults(suiteName: $0) }
+    let defaults = groupDefaults() ?? UserDefaults(suiteName: "de.reonic.prReader.widgets") ?? .standard
+    if defaults.object(forKey: "pinned") == nil,
+      let data = try? Data(contentsOf: exportURL),
+      let saved = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    {
+      for (k, v) in saved { defaults.set(v, forKey: k) }
+    }
     let channel = FlutterMethodChannel(name: "pr_reader/widgets", binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
-      guard let defaults else { return result(FlutterError(code: "no_group", message: "No App Group", details: nil)) }
       let args = call.arguments as? [String: Any] ?? [:]
       var pinned = defaults.stringArray(forKey: "pinned") ?? []
       switch call.method {

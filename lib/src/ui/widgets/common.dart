@@ -345,3 +345,8 @@ class ReadableWidth extends StatelessWidget {
     );
   }
 }
+
+/// With separate windows on, [showDialog] opens a native dialog window that
+/// macOS never shows but that still blocks its parent window.
+Future<T?> showInWindowDialog<T>({required BuildContext context, required WidgetBuilder builder}) =>
+    Navigator.of(context, rootNavigator: true).push(DialogRoute<T>(context: context, builder: builder));
