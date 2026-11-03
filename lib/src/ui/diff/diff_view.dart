@@ -40,11 +40,18 @@ class CodeMetrics {
         c.lineHeight == lineHeight) {
       return c;
     }
+    // Set everything that changes glyph advances, so the theme's text style
+    // (Material body text has letter spacing) can't widen what is painted
+    // past what was measured here.
     final style = TextStyle(
       fontFamily: family,
       fontSize: fontSize,
       height: lineHeight / fontSize,
       color: color,
+      letterSpacing: 0,
+      wordSpacing: 0,
+      fontWeight: FontWeight.w400,
+      fontStyle: FontStyle.normal,
       fontFeatures: const [FontFeature.disable('liga'), FontFeature.disable('calt')],
     );
     final strut = StrutStyle(

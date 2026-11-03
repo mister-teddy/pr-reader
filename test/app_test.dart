@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pr_reader/src/app/editor_theme.dart';
@@ -490,5 +491,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(app.services.settings.editorTheme, isNull);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wrapped code lines fit their row', (tester) async {
+    final app = await pumpApp(tester, size: const Size(900, 900), dpr: 1, route: '$_pr/files');
+    final settings = app.services.settings
+      ..setWrap(WrapPref.on)
+      ..setDiffLayout(DiffLayoutPref.unified)
+      ..setDiffFontSize(14);
+    expect(settings.wrap, WrapPref.on);
+    await settle(tester, () => _session(app).filesDone);
+    await tester.pumpAndSettle();
+    final c = _diff(tester);
+    var wrapped = 0;
+    for (var k = 0; k < 40; k++) {
+      for (final p in tester.renderObjectList<RenderParagraph>(find.byType(RichText))) {
+        if (!p.text.toPlainText().contains('\n')) continue;
+        wrapped++;
+        expect(
+          p.getMaxIntrinsicWidth(double.infinity),
+          lessThanOrEqualTo(p.size.width - LayoutMetrics.codePaddingRight + 0.5),
+          reason: p.text.toPlainText(),
+        );
+      }
+      c.vertical.jumpTo(c.vertical.offset + 700);
+      await tester.pump();
+    }
+    expect(wrapped, greaterThan(0));
   });
 }
