@@ -101,9 +101,9 @@ Future<TestApp> pumpApp(
             listenable: settings,
             builder: (context, _) => MaterialApp(
               debugShowCheckedModeBanner: false,
-              theme: _withFonts(Brightness.light),
-              darkTheme: _withFonts(Brightness.dark),
-              themeMode: settings.themeMode,
+              theme: _withFonts(Brightness.light, settings),
+              darkTheme: _withFonts(Brightness.dark, settings),
+              themeMode: settings.effectiveThemeMode,
               onGenerateRoute: generateRoute,
               onGenerateInitialRoutes: (name) => initialRoutes(name, settings),
               initialRoute: route,
@@ -116,8 +116,8 @@ Future<TestApp> pumpApp(
   return TestApp(services, gh);
 }
 
-ThemeData _withFonts(Brightness b) {
-  final t = buildTheme(b);
+ThemeData _withFonts(Brightness b, SettingsController settings) {
+  final t = buildTheme(b, codeColors: settings.codeColors, editor: settings.editorTheme);
   return t.copyWith(textTheme: t.textTheme.apply(fontFamily: 'Roboto'));
 }
 

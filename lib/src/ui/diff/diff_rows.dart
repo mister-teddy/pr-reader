@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/windows.dart';
 import '../../data/pr_session.dart';
+import '../../diff/context_expand.dart';
 import '../../diff/diff_layout.dart';
 import '../../diff/diff_models.dart';
 import '../../diff/highlight_cache.dart';
@@ -73,6 +74,7 @@ Widget buildDiffRow(DiffRowContext ctx, int index) {
     RowKind.notice => _pinned(ctx, _NoticeRow(ctx: ctx, file: f, kind: NoticeKind.values[l.a[index]])),
     RowKind.comments => _pinned(ctx, _CommentsRow(ctx: ctx, file: f, anchorKey: l.b[index])),
     RowKind.composer => _pinned(ctx, _ComposerRow(ctx: ctx, file: f, line: l.a[index])),
+    RowKind.tail => _pinned(ctx, _TailRow(ctx: ctx, file: f)),
     RowKind.fileEnd => DecoratedBox(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: ctx.scheme.outlineVariant)),
@@ -152,7 +154,14 @@ class FileHeader extends StatelessWidget {
               const SizedBox(width: 4),
               FileStatusIcon(f.status),
               const SizedBox(width: 8),
-              Expanded(child: PathLabel(file: f)),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: PathLabel(file: f)),
+                    if (!compact && expanded) _ExpandAllButton(ctx: ctx, index: index),
+                  ],
+                ),
+              ),
               if (threads.isNotEmpty)
                 _CommentBadge(
                   count: threads.fold(0, (n, t) => n + t.length),
@@ -227,6 +236,7 @@ class PathLabel extends StatelessWidget {
         final name = Text(file.name, style: nameStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
         if (file.dir.isEmpty || nameWidth >= constraints.maxWidth - 24) return name;
         return Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             ConstrainedBox(
               constraints: BoxConstraints(maxWidth: constraints.maxWidth - nameWidth),
@@ -335,6 +345,52 @@ class _ViewedToggle extends StatelessWidget {
   }
 }
 
+/// "Copy" followed by what gets copied, in the code font.
+class _CopyLabel extends StatelessWidget {
+  const _CopyLabel(this.what);
+
+  final String what;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Text.rich(
+      TextSpan(
+        children: [
+          const TextSpan(text: 'Copy '),
+          TextSpan(
+            text: what,
+            style: TextStyle(
+              fontFamily: kCodeFont,
+              fontSize: 13,
+              backgroundColor: scheme.surfaceContainerHighest,
+              color: scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+String _shortLine(String text) {
+  final t = text.trim();
+  return t.length <= 36 ? t : '${t.substring(0, 35).trimRight()}…';
+}
+
+/// Keeps the file name and as much of the directory as fits.
+String _shortPath(String path, {int max = 40}) {
+  if (path.length <= max) return path;
+  final parts = path.split('/');
+  var out = parts.removeLast();
+  while (parts.isNotEmpty && out.length + parts.last.length + 3 <= max) {
+    out = '${parts.removeLast()}/$out';
+  }
+  return parts.isEmpty ? out : '…/$out';
+}
+
 class _FileMenu extends StatelessWidget {
   const _FileMenu({required this.ctx, required this.index});
 
@@ -348,6 +404,7 @@ class _FileMenu extends StatelessWidget {
     final expanded = c.isExpanded(index);
     return PopupMenuButton<String>(
       tooltip: 'File actions',
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 440),
       icon: const Icon(Icons.more_vert_rounded, size: 20),
       onSelected: (v) {
         switch (v) {
@@ -359,6 +416,10 @@ class _FileMenu extends StatelessWidget {
             c.toggleExpanded(index);
           case 'full':
             c.loadFullDiff(index);
+          case 'whole':
+            _runExpand(context, () => c.expandWhole(index));
+          case 'collapse':
+            c.collapseContext(index);
           case 'comments':
             ctx.openThreads(ctx.session.threadsByPath[f.path]!.all, f.name);
           case 'window':
@@ -371,7 +432,10 @@ class _FileMenu extends StatelessWidget {
       },
       itemBuilder: (context) => [
         PopupMenuItem(value: 'toggle', child: Text(expanded ? 'Collapse file' : 'Expand file')),
-        const PopupMenuItem(value: 'copy', child: Text('Copy path')),
+        if (ctx.compact && _canShowWhole(f)) const PopupMenuItem(value: 'whole', child: Text('Expand all lines')),
+        if (ctx.compact && c.isContextExpanded(index))
+          const PopupMenuItem(value: 'collapse', child: Text('Collapse expanded lines')),
+        PopupMenuItem(value: 'copy', child: _CopyLabel(_shortPath(f.path))),
         if (AppWindows.maybeOf(context) != null && c.onlyPath == null)
           const PopupMenuItem(value: 'window', child: Text('Open in new window')),
         if (ctx.session.pr != null) const PopupMenuItem(value: 'open', child: Text('View file on GitHub')),
@@ -386,6 +450,153 @@ class _FileMenu extends StatelessWidget {
 
 // ---- Hunk, notice, comments, end ---------------------------------------------
 
+bool _canShowWhole(DiffFile f) => f.state == PatchState.ready && hasHiddenLines(f);
+
+Future<void> _runExpand(BuildContext context, Future<void> Function() expand) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  try {
+    await expand();
+  } catch (e) {
+    messenger?.showSnackBar(SnackBar(content: Text(describeError(e, hasToken: true))));
+  }
+}
+
+enum _Fold { up, down, unfold, fold }
+
+/// GitHub's fold icons: arrows pointing away from or towards a dotted line.
+class _FoldIcon extends StatelessWidget {
+  const _FoldIcon(this.kind, {required this.color});
+
+  final _Fold kind;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(size: const Size.square(16), painter: _FoldPainter(kind, color));
+}
+
+class _FoldPainter extends CustomPainter {
+  _FoldPainter(this.kind, this.color);
+
+  final _Fold kind;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 16);
+    final stroke = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    final fill = Paint()..color = color;
+    void dots(double y) {
+      for (var x = 2.0; x <= 14; x += 3) {
+        canvas.drawLine(Offset(x - 0.25, y), Offset(x + 0.25, y), stroke);
+      }
+    }
+
+    // A filled head at [tip] pointing up (dir -1) or down (dir 1), with a stem to [to].
+    void arrow(double tip, int dir, double to) {
+      final base = tip - dir * 4;
+      canvas.drawPath(
+        Path()
+          ..moveTo(8, tip)
+          ..lineTo(12, base)
+          ..lineTo(4, base)
+          ..close(),
+        fill,
+      );
+      canvas.drawLine(Offset(8, base), Offset(8, to), stroke);
+    }
+
+    switch (kind) {
+      case _Fold.up:
+        arrow(1, -1, 10);
+        dots(14);
+      case _Fold.down:
+        dots(2);
+        arrow(15, 1, 6);
+      case _Fold.unfold:
+        arrow(0.5, -1, 5.5);
+        dots(8);
+        arrow(15.5, 1, 10.5);
+      case _Fold.fold:
+        arrow(6, 1, 0.5);
+        dots(8);
+        arrow(10, -1, 15.5);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FoldPainter old) => old.kind != kind || old.color != color;
+}
+
+/// One expand button in the gutter of a hunk header or a file's tail row.
+class _ExpandButton extends StatefulWidget {
+  const _ExpandButton({required this.ctx, required this.kind, required this.tooltip, required this.onTap});
+
+  final DiffRowContext ctx;
+  final _Fold kind;
+  final String tooltip;
+  final Future<void> Function() onTap;
+
+  @override
+  State<_ExpandButton> createState() => _ExpandButtonState();
+}
+
+class _ExpandButtonState extends State<_ExpandButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.ctx.theme;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _runExpand(context, widget.onTap),
+          child: ColoredBox(
+            color: _hover ? t.hunkActive : Colors.transparent,
+            child: Center(child: _FoldIcon(widget.kind, color: _hover ? Colors.white : t.hunkFg)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The gutter of a hunk header or tail row: expand buttons stacked
+/// vertically, a spinner while the file loads, or GitHub's "⋯".
+class _ExpandGutter extends StatelessWidget {
+  const _ExpandGutter({required this.ctx, required this.file, required this.buttons});
+
+  final DiffRowContext ctx;
+  final int file;
+  final List<_ExpandButton> buttons;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = ctx.files[file];
+    final t = ctx.theme;
+    final width = math.max(ctx.m.gutterWidth(f.maxLineNo) - ctx.m.signWidth, 36.0);
+    final Widget child;
+    if (ctx.controller.isExpanding(file)) {
+      child = Center(
+        child: SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2, color: t.hunkFg)),
+      );
+    } else if (buttons.isEmpty) {
+      child = Center(child: Icon(Icons.more_horiz_rounded, size: 16, color: t.hunkFg));
+    } else {
+      child = Column(children: [for (final b in buttons) Expanded(child: b)]);
+    }
+    return SizedBox(width: width, child: ColoredBox(color: t.hunkGutter, child: child));
+  }
+}
+
 class _HunkRow extends StatelessWidget {
   const _HunkRow({required this.ctx, required this.file, required this.hunk});
 
@@ -397,29 +608,111 @@ class _HunkRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final f = ctx.files[file];
     final h = f.hunks[hunk];
-    final gutter = ctx.m.split ? 0.0 : ctx.m.gutterWidth(f.maxLineNo) - ctx.m.signWidth;
+    final hidden = hiddenAbove(f.hunks, hunk);
+    final c = ctx.controller;
+    final up = _ExpandButton(
+      ctx: ctx,
+      kind: _Fold.up,
+      tooltip: 'Expand up',
+      onTap: () => c.expandAbove(file, hunk),
+    );
+    final buttons = <_ExpandButton>[
+      if (hidden > 0 && hunk == 0) up,
+      if (hidden > 0 && hunk > 0 && hidden <= 20)
+        _ExpandButton(ctx: ctx, kind: _Fold.unfold, tooltip: 'Expand all', onTap: () => c.expandAbove(file, hunk)),
+      if (hunk > 0 && hidden > 20) ...[
+        _ExpandButton(ctx: ctx, kind: _Fold.down, tooltip: 'Expand down', onTap: () => c.expandAfter(file, hunk - 1)),
+        up,
+      ],
+    ];
     return Container(
       color: ctx.theme.hunkBg,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: math.max(gutter, 36),
-            child: Icon(Icons.unfold_more_rounded, size: 16, color: ctx.theme.hunkFg),
-          ),
+          _ExpandGutter(ctx: ctx, file: file, buttons: buttons),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              h.header,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: ctx.codeStyle.copyWith(
-                color: ctx.theme.hunkFg,
-                fontSize: ctx.codeStyle.fontSize! * 0.95,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                h.header,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ctx.codeStyle.copyWith(
+                  color: ctx.theme.hunkFg,
+                  fontSize: ctx.codeStyle.fontSize! * 0.95,
+                ),
+                textScaler: TextScaler.noScaling,
               ),
-              textScaler: TextScaler.noScaling,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Below the last hunk of a file that may continue past it.
+class _TailRow extends StatelessWidget {
+  const _TailRow({required this.ctx, required this.file});
+
+  final DiffRowContext ctx;
+  final int file;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = ctx.files[file];
+    return Container(
+      color: ctx.theme.hunkBg,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ExpandGutter(
+            ctx: ctx,
+            file: file,
+            buttons: [
+              _ExpandButton(
+                ctx: ctx,
+                kind: _Fold.down,
+                tooltip: 'Expand down',
+                onTap: () => ctx.controller.expandAfter(file, f.hunks.length - 1),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Expand all lines" next to the path, or "Collapse expanded lines" once
+/// unchanged lines are shown.
+class _ExpandAllButton extends StatelessWidget {
+  const _ExpandAllButton({required this.ctx, required this.index});
+
+  final DiffRowContext ctx;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ctx.controller;
+    final f = ctx.files[index];
+    final color = ctx.scheme.onSurfaceVariant;
+    final collapse = c.isContextExpanded(index);
+    if (!collapse && !_canShowWhole(f)) return const SizedBox.shrink();
+    return IconButton(
+      tooltip: collapse ? 'Collapse expanded lines' : 'Expand all lines: ${f.path}',
+      visualDensity: VisualDensity.compact,
+      iconSize: 16,
+      icon: c.isExpanding(index)
+          ? SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2, color: color))
+          : _FoldIcon(collapse ? _Fold.fold : _Fold.unfold, color: color),
+      onPressed: c.isExpanding(index)
+          ? null
+          : collapse
+          ? () => c.collapseContext(index)
+          : () => _runExpand(context, () => c.expandWhole(index)),
     );
   }
 }
@@ -699,7 +992,7 @@ class _ListEnd extends StatelessWidget {
   return switch (kind) {
     LineKind.add => (bg: t.addBg, gutter: t.addGutter, sign: '+'),
     LineKind.del => (bg: t.delBg, gutter: t.delGutter, sign: '−'),
-    _ => (bg: Colors.transparent, gutter: Colors.transparent, sign: ''),
+    _ => (bg: t.codeBg ?? Colors.transparent, gutter: t.codeBg ?? Colors.transparent, sign: ''),
   };
 }
 
@@ -822,7 +1115,7 @@ class _SplitRow extends StatelessWidget {
 
   Widget _side(DiffFile f, int index, bool isLeft, int cols) {
     if (index < 0) {
-      return ColoredBox(color: ctx.scheme.surfaceContainerLow, child: const SizedBox.expand());
+      return ColoredBox(color: ctx.theme.emptySide ?? ctx.scheme.surfaceContainerLow, child: const SizedBox.expand());
     }
     final l = f.lines[index];
     final colors = _lineColors(ctx, l.kind);
@@ -905,6 +1198,8 @@ class _LineGesturesState extends State<_LineGestures> {
     final f = ctx.files[file];
     final l = f.lines[line];
     final no = l.kind == LineKind.del ? l.oldNo : l.newNo;
+    final path = l.kind == LineKind.del ? (f.previousPath ?? f.path) : f.path;
+    final suffix = no > 0 ? ':$no' : '';
     final ft = ctx.session.threadsByPath[f.path];
     final threads = [
       ...?ft?.byKey[threadKey(l.oldNo, DiffSide.left)],
@@ -914,6 +1209,7 @@ class _LineGesturesState extends State<_LineGestures> {
     final local = overlay.globalToLocal(global);
     final choice = await showMenu<String>(
       context: context,
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 440),
       position: RelativeRect.fromLTRB(
         local.dx,
         local.dy,
@@ -922,8 +1218,11 @@ class _LineGesturesState extends State<_LineGestures> {
       ),
       items: [
         if (_commentable) PopupMenuItem(value: 'comment', child: Text('Comment on line $no')),
-        const PopupMenuItem(value: 'line', child: Text('Copy line')),
-        const PopupMenuItem(value: 'path', child: Text('Copy path')),
+        if (l.text.trim().isNotEmpty) PopupMenuItem(value: 'line', child: _CopyLabel(_shortLine(l.text))),
+        PopupMenuItem(
+          value: 'path',
+          child: _CopyLabel('${_shortPath(path, max: 40 - suffix.length)}$suffix'),
+        ),
         if (ctx.session.pr != null && l.kind != LineKind.del)
           PopupMenuItem(value: 'open', child: Text('View line $no on GitHub')),
         if (threads.isNotEmpty) const PopupMenuItem(value: 'threads', child: Text('Show comments')),
@@ -936,7 +1235,7 @@ class _LineGesturesState extends State<_LineGestures> {
       case 'line':
         copyText(context, l.text, message: 'Line copied');
       case 'path':
-        copyText(context, f.path, message: 'Path copied');
+        copyText(context, '$path$suffix', message: 'Path copied');
       case 'open':
         openUrl(_blobUrl(ctx.session, f, line: no));
       case 'threads':

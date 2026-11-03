@@ -7,10 +7,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../diff/diff_layout.dart';
 import '../github/models.dart';
 import '../github/pr_ref.dart';
+import 'editor_theme.dart';
 
 enum DiffLayoutPref { auto, unified, split }
 
 enum WrapPref { auto, on, off }
+
+/// Syntax colors for code; each has a light and a dark variant.
+enum CodeColors { github, solarized, one, mono }
+
+/// [SettingsController.codeFont] for the platform's own monospace font.
+const kSystemCodeFont = 'system';
+
+enum LineSpacing {
+  compact(1.35),
+  normal(1.55),
+  relaxed(1.8);
+
+  const LineSpacing(this.factor);
+  final double factor;
+}
 
 class RecentPr {
   const RecentPr({required this.ref, required this.title, required this.state, required this.openedAt});
@@ -101,6 +117,16 @@ class SettingsController extends ChangeNotifier {
   DiffLayoutPref diffLayout = DiffLayoutPref.auto;
   WrapPref wrap = WrapPref.auto;
   bool syntaxHighlight = true;
+  CodeColors codeColors = CodeColors.github;
+
+  /// A VS Code theme used instead of [codeColors]; the app's light or dark
+  /// mode then follows it.
+  EditorTheme? editorTheme;
+
+  /// Font family for code: empty for the bundled one, [kSystemCodeFont], or
+  /// the name of an installed font.
+  String codeFont = '';
+  LineSpacing lineSpacing = LineSpacing.normal;
 
   /// macOS: open PRs and files in separate windows. Read by the native
   /// runner at launch (as `flutter.multi_window`), so it applies on restart.
@@ -123,6 +149,14 @@ class SettingsController extends ChangeNotifier {
     s.diffLayout = DiffLayoutPref.values.asNameMap()[prefs.getString('diff_layout')] ?? DiffLayoutPref.auto;
     s.wrap = WrapPref.values.asNameMap()[prefs.getString('wrap')] ?? WrapPref.auto;
     s.syntaxHighlight = prefs.getBool('syntax') ?? true;
+    s.codeColors = CodeColors.values.asNameMap()[prefs.getString('code_colors')] ?? CodeColors.github;
+    final font = prefs.getString('code_font') ?? '';
+    s.codeFont = font == 'jetBrainsMono' ? '' : font;
+    try {
+      final raw = prefs.getString('editor_theme');
+      if (raw != null) s.editorTheme = EditorTheme.fromJson(jsonDecode(raw));
+    } catch (_) {}
+    s.lineSpacing = LineSpacing.values.asNameMap()[prefs.getString('line_spacing')] ?? LineSpacing.normal;
     s.multiWindow = prefs.getBool('multi_window') ?? true;
     try {
       s.token = await secure.read(key: _tokenKey);
@@ -142,7 +176,9 @@ class SettingsController extends ChangeNotifier {
 
   void setThemeMode(ThemeMode mode) {
     themeMode = mode;
+    editorTheme = null;
     _prefs.setString('theme', mode.name);
+    _prefs.remove('editor_theme');
     notifyListeners();
   }
 
@@ -167,6 +203,43 @@ class SettingsController extends ChangeNotifier {
   void setSyntaxHighlight(bool v) {
     syntaxHighlight = v;
     _prefs.setBool('syntax', v);
+    notifyListeners();
+  }
+
+  void setCodeColors(CodeColors v) {
+    codeColors = v;
+    editorTheme = null;
+    _prefs.setString('code_colors', v.name);
+    _prefs.remove('editor_theme');
+    notifyListeners();
+  }
+
+  void setEditorTheme(EditorTheme? v) {
+    editorTheme = v;
+    if (v == null) {
+      _prefs.remove('editor_theme');
+    } else {
+      _prefs.setString('editor_theme', jsonEncode(v.toJson()));
+    }
+    notifyListeners();
+  }
+
+  /// [themeMode], or the mode of [editorTheme] when one is set.
+  ThemeMode get effectiveThemeMode {
+    final t = editorTheme;
+    if (t == null) return themeMode;
+    return t.dark ? ThemeMode.dark : ThemeMode.light;
+  }
+
+  void setCodeFont(String family) {
+    codeFont = family;
+    _prefs.setString('code_font', family);
+    notifyListeners();
+  }
+
+  void setLineSpacing(LineSpacing v) {
+    lineSpacing = v;
+    _prefs.setString('line_spacing', v.name);
     notifyListeners();
   }
 

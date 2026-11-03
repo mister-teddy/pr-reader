@@ -1,9 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/editor_theme.dart';
+import '../../app/fonts.dart';
 import '../../app/services.dart';
 import '../../app/settings.dart';
+import '../../diff/diff_models.dart';
+import '../../diff/syntax.dart';
 import '../../github/models.dart';
+import '../diff/diff_view.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 
 const _newTokenUrl = 'https://github.com/settings/tokens/new?scopes=repo&description=PR%20Reader';
@@ -152,16 +158,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _Section(
                     title: 'Appearance',
                     children: [
-                      _Choice<ThemeMode>(
+                      _Choice<_ThemeChoice>(
                         label: 'Theme',
-                        value: settings.themeMode,
+                        value: settings.editorTheme != null ? _ThemeChoice.vsCode : _ThemeChoice.of(settings.themeMode),
                         options: const {
-                          ThemeMode.system: 'System',
-                          ThemeMode.light: 'Light',
-                          ThemeMode.dark: 'Dark',
+                          _ThemeChoice.system: 'System',
+                          _ThemeChoice.light: 'Light',
+                          _ThemeChoice.dark: 'Dark',
+                          _ThemeChoice.vsCode: 'VS Code',
                         },
-                        onChanged: settings.setThemeMode,
+                        onChanged: (v) {
+                          final mode = v.mode;
+                          if (mode != null) {
+                            settings.setThemeMode(mode);
+                          } else if (settings.editorTheme == null) {
+                            _pickEditorTheme(context, settings);
+                          }
+                        },
                       ),
+                      if (settings.editorTheme case final t?)
+                        ListTile(
+                          title: const Text('VS Code theme'),
+                          subtitle: Text('${t.name} · ${t.dark ? 'dark' : 'light'}'),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => _pickEditorTheme(context, settings),
+                        )
+                      else
+                        _Choice<CodeColors>(
+                          label: 'Code colors',
+                          value: settings.codeColors,
+                          options: _builtInColors,
+                          onChanged: settings.setCodeColors,
+                        ),
+                      ListTile(
+                        title: const Text('Code font'),
+                        subtitle: Text(_fontLabel(settings.codeFont)),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => showInWindowDialog<void>(
+                          context: context,
+                          builder: (_) => _FontDialog(settings: settings),
+                        ),
+                      ),
+                      ListTile(
+                        title: const Text('Code font size'),
+                        subtitle: Slider(
+                          value: settings.diffFontSize,
+                          min: 9,
+                          max: 20,
+                          divisions: 11,
+                          label: settings.diffFontSize.round().toString(),
+                          onChanged: settings.setDiffFontSize,
+                        ),
+                        trailing: Text('${settings.diffFontSize.round()} pt'),
+                      ),
+                      _Choice<LineSpacing>(
+                        label: 'Line spacing',
+                        value: settings.lineSpacing,
+                        options: const {
+                          LineSpacing.compact: 'Compact',
+                          LineSpacing.normal: 'Normal',
+                          LineSpacing.relaxed: 'Relaxed',
+                        },
+                        onChanged: settings.setLineSpacing,
+                      ),
+                      SwitchListTile(
+                        title: const Text('Syntax highlighting'),
+                        value: settings.syntaxHighlight,
+                        onChanged: settings.setSyntaxHighlight,
+                      ),
+                      const _CodePreview(),
                     ],
                   ),
                   _Section(
@@ -184,23 +249,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: settings.wrap,
                         options: const {WrapPref.auto: 'Auto', WrapPref.on: 'On', WrapPref.off: 'Off'},
                         onChanged: settings.setWrap,
-                      ),
-                      ListTile(
-                        title: const Text('Code font size'),
-                        subtitle: Slider(
-                          value: settings.diffFontSize,
-                          min: 9,
-                          max: 20,
-                          divisions: 11,
-                          label: settings.diffFontSize.round().toString(),
-                          onChanged: settings.setDiffFontSize,
-                        ),
-                        trailing: Text('${settings.diffFontSize.round()} pt'),
-                      ),
-                      SwitchListTile(
-                        title: const Text('Syntax highlighting'),
-                        value: settings.syntaxHighlight,
-                        onChanged: settings.setSyntaxHighlight,
                       ),
                       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS)
                         SwitchListTile(
@@ -311,7 +359,9 @@ class _Choice<T> extends StatelessWidget {
 
   final String label;
   final String? help;
-  final T value;
+
+  /// Null when none of [options] applies.
+  final T? value;
   final Map<T, String> options;
   final ValueChanged<T> onChanged;
 
@@ -341,9 +391,19 @@ class _Choice<T> extends StatelessWidget {
           ),
           SegmentedButton<T>(
             showSelectedIcon: false,
-            segments: [for (final e in options.entries) ButtonSegment(value: e.key, label: Text(e.value))],
-            selected: {value},
-            onSelectionChanged: (s) => onChanged(s.first),
+            style: const ButtonStyle(padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10))),
+            segments: [
+              for (final e in options.entries)
+                ButtonSegment(
+                  value: e.key,
+                  label: FittedBox(fit: BoxFit.scaleDown, child: Text(e.value, maxLines: 1, softWrap: false)),
+                ),
+            ],
+            selected: {?value},
+            emptySelectionAllowed: value == null,
+            onSelectionChanged: (s) {
+              if (s.isNotEmpty) onChanged(s.first);
+            },
           ),
         ],
       ),
@@ -372,6 +432,363 @@ class _Shortcut extends StatelessWidget {
         ),
         child: Text(keys, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
       ),
+    );
+  }
+}
+
+class _CodePreview extends StatelessWidget {
+  const _CodePreview();
+
+  static const _lines = [
+    (LineKind.context, 12, 'function greet(name: string) {'),
+    (LineKind.del, 13, '  return "Hi " + name; // old'),
+    (LineKind.add, 13, '  return `Hello, \${name}!`; // new'),
+    (LineKind.context, 14, '}'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppScope.of(context).settings;
+    final d = DiffTheme.of(context);
+    final code = CodeMetrics.of(
+      settings.diffFontSize,
+      d.code,
+      family: codeFontFamily(settings.codeFont),
+      spacing: settings.lineSpacing.factor,
+    );
+    final spec = languageFor('preview.ts')!;
+    Widget line((LineKind, int, String) l) {
+      final (kind, no, text) = l;
+      final spans = <TextSpan>[];
+      if (settings.syntaxHighlight) {
+        final (toks, _) = tokenizeLine(text, spec, 0);
+        var at = 0;
+        for (var i = 0; i + 2 < toks.length; i += 3) {
+          if (toks[i] > at) spans.add(TextSpan(text: text.substring(at, toks[i])));
+          spans.add(TextSpan(text: text.substring(toks[i], toks[i + 1]), style: TextStyle(color: d.syntaxColor(toks[i + 2]))));
+          at = toks[i + 1];
+        }
+        if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
+      } else {
+        spans.add(TextSpan(text: text));
+      }
+      final sign = switch (kind) {
+        LineKind.add => '+',
+        LineKind.del => '-',
+        _ => ' ',
+      };
+      return ColoredBox(
+        color: switch (kind) {
+          LineKind.add => d.addBg,
+          LineKind.del => d.delBg,
+          _ => d.codeBg ?? Colors.transparent,
+        },
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: '${'$no'.padLeft(3)} ', style: TextStyle(color: d.lineNo)),
+              TextSpan(text: '$sign ', style: TextStyle(color: kind == LineKind.add ? d.addFg : d.delFg)),
+              ...spans,
+            ],
+          ),
+          style: code.style,
+          strutStyle: code.strut,
+          maxLines: 1,
+          overflow: TextOverflow.clip,
+          textScaler: TextScaler.noScaling,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [for (final l in _lines) line(l)],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _fontLabel(String font) => switch (font) {
+  '' => 'JetBrains Mono',
+  kSystemCodeFont => 'System ($systemMonoFont)',
+  _ => font,
+};
+
+enum _ThemeChoice {
+  system(ThemeMode.system),
+  light(ThemeMode.light),
+  dark(ThemeMode.dark),
+  vsCode(null);
+
+  const _ThemeChoice(this.mode);
+  final ThemeMode? mode;
+
+  static _ThemeChoice of(ThemeMode m) => values.firstWhere((c) => c.mode == m);
+}
+
+Future<void> _pickEditorTheme(BuildContext context, SettingsController settings) =>
+    showInWindowDialog<void>(context: context, builder: (_) => _EditorThemeDialog(settings: settings));
+
+const _builtInColors = {
+  CodeColors.github: 'GitHub',
+  CodeColors.solarized: 'Solarized',
+  CodeColors.one: 'One',
+  CodeColors.mono: 'Mono',
+};
+
+/// Picks a VS Code color theme: one installed with an editor, or a theme
+/// file by URL or pasted JSON.
+class _EditorThemeDialog extends StatefulWidget {
+  const _EditorThemeDialog({required this.settings});
+
+  final SettingsController settings;
+
+  @override
+  State<_EditorThemeDialog> createState() => _EditorThemeDialogState();
+}
+
+class _EditorThemeDialogState extends State<_EditorThemeDialog> {
+  final _source = TextEditingController();
+  final _filter = TextEditingController();
+  late final Future<List<InstalledTheme>> _installed = findInstalledThemes();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _source.dispose();
+    _filter.dispose();
+    super.dispose();
+  }
+
+  Future<void> _use(Future<EditorTheme> Function() load) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final t = await load();
+      widget.settings.setEditorTheme(t);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) setState(() => _error = e is FormatException ? e.message : 'Could not read this theme: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final current = widget.settings.editorTheme?.name;
+    return AlertDialog(
+      title: const Text('VS Code theme'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'The diff takes the theme\'s colors, and the app its light or dark mode.',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _source,
+                    enabled: !_busy,
+                    decoration: const InputDecoration(hintText: 'Theme .json URL, or paste its JSON'),
+                    onSubmitted: (v) => _use(() => importEditorTheme(v)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _busy ? null : () => _use(() => importEditorTheme(_source.text)),
+                  child: const Text('Import'),
+                ),
+              ],
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              ),
+            if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+            FutureBuilder(
+              future: _installed,
+              builder: (context, snap) {
+                final all = snap.data ?? const <InstalledTheme>[];
+                if (snap.connectionState != ConnectionState.done || all.isEmpty) return const SizedBox(height: 12);
+                return ListenableBuilder(
+                  listenable: _filter,
+                  builder: (context, _) {
+                    final q = _filter.text.toLowerCase();
+                    final shown = [
+                      for (final t in all)
+                        if (q.isEmpty || '${t.label} ${t.editor}'.toLowerCase().contains(q)) t,
+                    ];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16, bottom: 8),
+                          child: Text('Installed', style: theme.textTheme.labelLarge),
+                        ),
+                        if (all.length > 8)
+                          TextField(
+                            controller: _filter,
+                            decoration: const InputDecoration(
+                              hintText: 'Filter themes',
+                              prefixIcon: Icon(Icons.search_rounded),
+                              isDense: true,
+                            ),
+                          ),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 320),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: shown.length,
+                            itemBuilder: (context, i) {
+                              final t = shown[i];
+                              return ListTile(
+                                dense: true,
+                                enabled: !_busy,
+                                leading: Icon(t.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined, size: 20),
+                                title: Text(t.label),
+                                subtitle: Text(t.editor),
+                                trailing: t.label == current ? const Icon(Icons.check_rounded) : null,
+                                onTap: () => _use(t.load),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
+    );
+  }
+}
+
+/// Picks the code font: the bundled one, the system's, or any installed
+/// monospaced font (macOS), each shown in itself.
+class _FontDialog extends StatefulWidget {
+  const _FontDialog({required this.settings});
+
+  final SettingsController settings;
+
+  @override
+  State<_FontDialog> createState() => _FontDialogState();
+}
+
+class _FontDialogState extends State<_FontDialog> {
+  late final Future<List<String>> _families = monospaceFamilies();
+  final _filter = TextEditingController();
+
+  @override
+  void dispose() {
+    _filter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = widget.settings;
+    final theme = Theme.of(context);
+    Widget option(String value, String family, String label, {String? note}) => ListTile(
+      dense: true,
+      title: Text(label, style: TextStyle(fontFamily: family, fontSize: 15)),
+      subtitle: note == null ? null : Text(note),
+      trailing: settings.codeFont == value ? const Icon(Icons.check_rounded) : null,
+      onTap: () {
+        settings.setCodeFont(value);
+        Navigator.of(context).pop();
+      },
+    );
+
+    return AlertDialog(
+      title: const Text('Code font'),
+      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+      content: SizedBox(
+        width: 420,
+        child: FutureBuilder(
+          future: _families,
+          builder: (context, snap) {
+            final installed = [
+              for (final f in snap.data ?? const <String>[])
+                if (f != kCodeFont && f != systemMonoFont) f,
+            ];
+            return ListenableBuilder(
+              listenable: _filter,
+              builder: (context, _) {
+                final q = _filter.text.toLowerCase();
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    option('', kCodeFont, 'JetBrains Mono', note: 'Built in'),
+                    option(kSystemCodeFont, systemMonoFont, systemMonoFont, note: 'System default'),
+                    if (installed.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text('Installed monospaced fonts', style: theme.textTheme.titleSmall),
+                      ),
+                      if (installed.length > 8)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: TextField(
+                            controller: _filter,
+                            decoration: const InputDecoration(
+                              hintText: 'Filter fonts',
+                              prefixIcon: Icon(Icons.search_rounded),
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                      Flexible(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final f in installed)
+                              if (q.isEmpty || f.toLowerCase().contains(q)) option(f, f, f),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
     );
   }
 }

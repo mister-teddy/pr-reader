@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../data/pr_session.dart';
+import '../../diff/context_expand.dart' as cx;
 import '../../diff/diff_layout.dart';
 import '../../diff/diff_models.dart';
 import '../../diff/text_metrics.dart';
@@ -22,7 +23,7 @@ class LineDraft {
   LineDraft(this.path, this.line);
 
   final String path;
-  final int line;
+  int line;
   final text = TextEditingController();
 
   /// Focus the box when it opens, not each time its row is rebuilt.
@@ -81,6 +82,11 @@ class DiffController extends ChangeNotifier {
   int _builtRevision = -1;
 
   LineDraft? draft;
+
+  /// Lines just inserted into a file by [expandContext]. The next relayout
+  /// moves the scroll anchor past them so the view stays put.
+  ({String path, cx.Expansion moved})? _inserted;
+  final Set<String> _expanding = {};
 
   SearchHits? hits;
   int currentHit = -1;
@@ -164,7 +170,7 @@ class DiffController extends ChangeNotifier {
     _computeMarks();
     if (old != null && vertical.positions.length == 1 && vertical.position.hasPixels) {
       final pixels = vertical.position.pixels;
-      final anchor = old.anchorAt(pixels);
+      final anchor = _shiftAnchor(old.anchorAt(pixels));
       final target = anchor == null ? null : next.resolve(anchor);
       if (target != null && (target - pixels).abs() > 0.5) {
         vertical.position.correctPixels(target);
@@ -182,6 +188,69 @@ class DiffController extends ChangeNotifier {
       }
     });
     return true;
+  }
+
+  RowAnchor? _shiftAnchor(RowAnchor? a) {
+    final s = _inserted;
+    _inserted = null;
+    if (a == null || s == null || a.path != s.path) return a;
+    final e = s.moved;
+    RowAnchor at({int? a1, int? b1}) =>
+        RowAnchor(path: a.path, kind: a.kind, a: a1 ?? a.a, b: b1 ?? a.b, delta: a.delta);
+    return switch (a.kind) {
+      RowKind.line || RowKind.comments || RowKind.composer => at(a1: e.line(a.a)),
+      RowKind.split => at(a1: a.a < 0 ? a.a : e.line(a.a), b1: a.b < 0 ? a.b : e.line(a.b)),
+      RowKind.hunk => at(a1: e.hunk(a.a)),
+      _ => a,
+    };
+  }
+
+  /// Whether unchanged lines of file [file] are being fetched.
+  bool isExpanding(int file) => _expanding.contains(files[file].path);
+
+  /// Shows more unchanged lines above hunk [hunk] of file [file].
+  Future<void> expandAbove(int file, int hunk) => _expand(file, (l, h, f) => cx.expandAbove(l, h, hunk, f));
+
+  /// Shows more unchanged lines below hunk [hunk] of file [file].
+  Future<void> expandAfter(int file, int hunk) => _expand(file, (l, h, f) => cx.expandAfter(l, h, hunk, f));
+
+  /// Shows every line of file [file].
+  Future<void> expandWhole(int file) {
+    setExpanded(file, true);
+    return _expand(file, cx.expandWhole);
+  }
+
+  /// Whether file [file] shows unchanged lines the patch did not have.
+  bool isContextExpanded(int file) => session.isContextExpanded(files[file]);
+
+  /// Hides the unchanged lines shown in file [file] again.
+  void collapseContext(int file) {
+    final f = files[file];
+    final r = session.collapseContext(f);
+    if (r != null) _moved(f, r);
+  }
+
+  void _moved(DiffFile f, cx.Expansion r) {
+    _inserted = (path: f.path, moved: r);
+    final d = draft;
+    if (d != null && d.path == f.path) d.line = r.line(d.line);
+    if (_query.length >= 2) _runSearch(_query);
+  }
+
+  Future<void> _expand(
+    int file,
+    cx.Expansion Function(List<DiffLine> lines, List<DiffHunk> hunks, List<String> newFile) expand,
+  ) async {
+    final f = files[file];
+    if (!_expanding.add(f.path)) return;
+    notifyListeners();
+    try {
+      final r = await session.expandContext(f, expand);
+      if (r != null && r.inserted != 0) _moved(f, r);
+    } finally {
+      _expanding.remove(f.path);
+      notifyListeners();
+    }
   }
 
   void _tryResume() {

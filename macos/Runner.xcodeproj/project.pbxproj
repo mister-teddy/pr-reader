@@ -33,6 +33,7 @@
 		80B970596E69A98D63D3D029 /* PrWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923D55EC8B32A92CA0D963C0 /* PrWidget.swift */; };
 		845AC8EDEFB05A17652E862A /* PrWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AB814B42ADD885C8D49198D4 /* PrWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B78271CA0F6B2F064BDB45CA /* WidgetChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48840DF9299A0043555AB795 /* WidgetChannel.swift */; };
+		F0A7C1E22B9D4E6F00C0FFEE /* FontChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A7C1E12B9D4E6F00C0FFEE /* FontChannel.swift */; };
 		DA6D4372754123F72D9C32CD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 124431C9353A0F7D22F23E96 /* Cocoa.framework */; };
 		DED5B09E285AEC60DB74FF0D /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12C54949EB0385FCF5A211DC /* SwiftUI.framework */; };
 /* End PBXBuildFile section */
@@ -107,6 +108,7 @@
 		33E5194F232828860026EE4D /* AppInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppInfo.xcconfig; sourceTree = "<group>"; };
 		440CA5A4A94E43A0D7749CE9 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		48840DF9299A0043555AB795 /* WidgetChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetChannel.swift; sourceTree = "<group>"; };
+		F0A7C1E12B9D4E6F00C0FFEE /* FontChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FontChannel.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		8465FD9231098A93A8FFB3CE /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -228,6 +230,7 @@
 				33CC11242044D66E0003C045 /* Resources */,
 				33BA886A226E78AF003329D5 /* Configs */,
 				48840DF9299A0043555AB795 /* WidgetChannel.swift */,
+				F0A7C1E12B9D4E6F00C0FFEE /* FontChannel.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -456,6 +459,7 @@
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 				B78271CA0F6B2F064BDB45CA /* WidgetChannel.swift in Sources */,
+				F0A7C1E22B9D4E6F00C0FFEE /* FontChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

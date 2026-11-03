@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../github/models.dart';
+import 'context_expand.dart';
 import 'diff_models.dart';
 import 'text_metrics.dart';
 
@@ -34,6 +35,9 @@ abstract final class RowKind {
 
   /// A new comment being written on a line; `a` = line index.
   static const composer = 8;
+
+  /// Shows the unchanged lines after the last hunk.
+  static const tail = 9;
 }
 
 enum NoticeKind { hiddenLarge, hiddenGenerated, tooLarge, loading, failed, noTextDiff, noChanges }
@@ -101,6 +105,10 @@ class LayoutMetrics {
   final double headerExtent;
   final double fileGap;
   final double hunkExtent;
+
+  /// Gaps of more than 20 lines between hunks get two expand buttons.
+  double hunkExtentOf(List<DiffHunk> hunks, int h) =>
+      h > 0 && hiddenAbove(hunks, h) > 20 ? (hunkExtent * 4 / 3).roundToDouble() : hunkExtent;
   final double noticeExtent;
   final double commentsExtent;
   final double composerExtent;
@@ -247,8 +255,20 @@ class DiffLayout {
         final hunks = files[f].hunks;
         if (anchor.a < hunks.length) {
           final first = rowOfLine(f, hunks[anchor.a].start);
-          if (first > 0) row = first - 1;
+          if (first > 0 && kind[first - 1] == RowKind.hunk) {
+            row = first - 1;
+          } else if (first >= 0) {
+            row = first;
+            delta = 0;
+          }
         }
+      case RowKind.tail:
+        final lines = files[f].lines;
+        var r = lines.isEmpty ? -1 : rowOfLine(f, lines.length - 1);
+        while (r >= 0 && r < length && file[r] == f && kind[r] != RowKind.tail) {
+          r++;
+        }
+        if (r >= 0 && r < length && kind[r] == RowKind.tail) row = r;
       case RowKind.comments || RowKind.composer:
         final line = rowOfLine(f, anchor.a);
         if (line >= 0) {
@@ -331,9 +351,10 @@ class DiffLayout {
         }
       }
 
+      final whole = isWholeFile(df);
       for (var h = 0; h < df.hunks.length; h++) {
         final hunk = df.hunks[h];
-        rows.add(RowKind.hunk, f, h, 0, m.hunkExtent);
+        if (!whole) rows.add(RowKind.hunk, f, h, 0, m.hunkExtentOf(df.hunks, h));
         if (!m.split) {
           for (var i = hunk.start; i < hunk.end; i++) {
             final l = lines[i];
@@ -386,6 +407,7 @@ class DiffLayout {
           }
         }
       }
+      if (hasHiddenBelow(df)) rows.add(RowKind.tail, f, 0, 0, m.hunkExtent);
       rows.add(RowKind.fileEnd, f, 0, 0, m.fileEndExtent);
     }
     rows.add(RowKind.listEnd, -1, 0, 0, m.listEndExtent);

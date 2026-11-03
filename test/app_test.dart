@@ -3,14 +3,19 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pr_reader/src/app/editor_theme.dart';
+import 'package:pr_reader/src/app/settings.dart';
 import 'package:pr_reader/src/data/pr_session.dart';
 import 'package:pr_reader/src/data/viewed_state.dart';
+import 'package:pr_reader/src/diff/diff_layout.dart';
 import 'package:pr_reader/src/diff/diff_models.dart';
+import 'package:pr_reader/src/diff/syntax.dart';
 import 'package:pr_reader/src/github/pr_ref.dart';
 import 'package:pr_reader/src/ui/diff/diff_controller.dart';
 import 'package:pr_reader/src/ui/diff/diff_rows.dart';
 import 'package:pr_reader/src/ui/diff/files_tab.dart';
 import 'package:pr_reader/src/ui/pr/pr_screen.dart';
+import 'package:pr_reader/src/ui/theme.dart';
 
 import 'support/fake_github.dart';
 import 'support/harness.dart';
@@ -427,5 +432,63 @@ void main() {
     await tester.pumpAndSettle();
     expect(again.services.settings.lastPr, isNull);
     expect(again.services.settings.readingPosition(_ref)?.diff?.path, top.path);
+  });
+
+  testWidgets('hunk headers show the unchanged lines above them', (tester) async {
+    final app = await pumpApp(tester, size: const Size(1440, 900), dpr: 1, route: '$_pr/files');
+    await settle(tester, () => _session(app).filesDone);
+    final expand = find.byWidgetPredicate((w) => w is Tooltip && w.message == 'Expand up');
+    expect(expand, findsWidgets);
+    final c = _diff(tester);
+    final before = c.files.fold<int>(0, (n, f) => n + f.lines.length);
+    final offset = c.vertical.offset;
+    await tester.tap(expand.first);
+    await settle(tester, () => c.files.fold<int>(0, (n, f) => n + f.lines.length) > before);
+    final grown = c.files.firstWhere(
+      (f) => f.lines.any((l) => l.kind == LineKind.context && l.text.contains('shader_')),
+    );
+    expect(grown.hunks.first.start, 0);
+    expect(c.vertical.offset, offset);
+
+    final i = c.files.indexOf(grown);
+    final count = grown.hunks.last.newCount;
+    await c.expandAfter(i, grown.hunks.length - 1);
+    await tester.pumpAndSettle();
+    expect(grown.hunks.last.newCount, count + 20);
+    expect(grown.lines.last.newNo, grown.hunks.last.newStart + grown.hunks.last.newCount - 1);
+
+    await c.expandWhole(i);
+    await settle(tester, () => grown.hunks.length == 1);
+    expect(grown.lines.where((l) => l.kind != LineKind.del).length, grown.newLength);
+    final l = c.layout!;
+    expect([
+      for (var r = 0; r < l.length; r++)
+        if (l.kind[r] == RowKind.tail && l.file[r] == i) r,
+    ], isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a VS Code theme colors the diff and sets dark mode', (tester) async {
+    final app = await pumpApp(tester, size: const Size(1440, 900), dpr: 1, route: '$_pr/files');
+    await settle(tester, () => _session(app).filesDone);
+    final theme = (await tester.runAsync(
+      () => parseEditorTheme('''{
+        "name": "Night", "type": "dark",
+        "colors": {"editor.background": "#101820", "editor.foreground": "#c0c8d0"},
+        "tokenColors": [{"scope": "keyword", "settings": {"foreground": "#ff8800"}}]
+      }'''),
+    ))!;
+    app.services.settings.setEditorTheme(theme);
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(FilesTab));
+    expect(Theme.of(context).brightness, Brightness.dark);
+    expect(DiffTheme.of(context).syntax[Tok.keyword], const Color(0xFFFF8800));
+    expect(find.byWidgetPredicate((w) => w is ColoredBox && w.color == const Color(0xFF101820)), findsWidgets);
+    await capture(tester, 'desktop_vscode_theme');
+
+    app.services.settings.setCodeColors(CodeColors.github);
+    await tester.pumpAndSettle();
+    expect(app.services.settings.editorTheme, isNull);
+    expect(tester.takeException(), isNull);
   });
 }

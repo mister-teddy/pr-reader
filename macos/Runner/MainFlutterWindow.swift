@@ -21,5 +21,6 @@ class MainFlutterWindow: NSWindow {
     setFrame(NSRect(origin: origin, size: size), display: true)
     RegisterGeneratedPlugins(registry: flutterViewController)
     WidgetChannel.register(with: flutterViewController.engine.binaryMessenger)
+    FontChannel.register(with: flutterViewController.engine.binaryMessenger)
   }
 }

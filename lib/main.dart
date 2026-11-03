@@ -114,9 +114,12 @@ class _PrReaderAppState extends State<PrReaderApp> {
         navigatorKey: _navigator,
         title: 'PR Reader',
         debugShowCheckedModeBanner: false,
-        theme: buildTheme(Brightness.light),
-        darkTheme: buildTheme(Brightness.dark),
-        themeMode: settings.themeMode,
+        theme: buildTheme(Brightness.light, codeColors: settings.codeColors, editor: settings.editorTheme),
+        darkTheme: buildTheme(Brightness.dark, codeColors: settings.codeColors, editor: settings.editorTheme),
+        themeMode: settings.effectiveThemeMode,
+        // The cross-fade never advances in separate windows, which then keep
+        // the old theme until restarted.
+        themeAnimationDuration: Duration.zero,
         initialRoute: widget.initialRoute,
         onGenerateRoute: generateRoute,
         onGenerateInitialRoutes: (name) => initialRoutes(name, settings, arguments: widget.arguments),

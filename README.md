@@ -92,8 +92,21 @@ widget tests; the top one and the widgets show real public PRs.
   - Tablets and desktops get a resizable tree pane and a toolbar.
   - Windows 1600 px and wider add a side panel for comment threads.
   - Book-style foldables put the tree and the diff on either side of the hinge.
-- Light and dark themes, adjustable code font size, and keyboard shortcuts
-  on desktop (`j`/`k`, `v`, `x`, `t`, `/`, `n`).
+- **Unchanged lines**, as on github.com: the buttons in a hunk header's
+  gutter expand up, down or all of a gap, 20 lines at a time, and the row
+  after a file's last hunk expands down to its end. "Expand all lines" next
+  to the path shows the whole file, and "Collapse expanded lines" hides
+  them again.
+- **Styling**: a System, Light, Dark or VS Code theme, code colors (GitHub,
+  Solarized, One, Mono), line spacing and font size.
+  - The VS Code theme can be any color theme installed with VS Code,
+    Cursor, VSCodium or Windsurf (built-in themes included), or a theme
+    `.json` imported by URL or pasted JSON. The diff takes the theme's
+    editor, diff and syntax colors, and the app follows its light or dark
+    mode.
+  - Code font: the bundled JetBrains Mono, the system's monospace font, or
+    on macOS any installed monospaced font.
+- Keyboard shortcuts on desktop (`j`/`k`, `v`, `x`, `t`, `/`, `n`).
 
 ## How it handles giant PRs
 
@@ -186,6 +199,6 @@ lib/
 ## Not yet supported
 
 Submitting reviews (approve, request changes), multi-line comments, editing
-or deleting comments, expanding unchanged context around hunks, per-commit
+or deleting comments, per-commit
 diffs, GitHub Enterprise hosts, and OAuth sign-in. OAuth needs a registered
 GitHub OAuth app; for now a personal access token is used.

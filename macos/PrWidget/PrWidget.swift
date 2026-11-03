@@ -91,45 +91,27 @@ enum Store {
 
 // MARK: - Choosing the PR (Edit Widget)
 
-struct PrEntity: AppEntity {
-  let id: String
-  let title: String
-
-  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Pull request"
-  static var defaultQuery = PrQuery()
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)", subtitle: "\(subtitle)")
+/// The picker lists PRs as readable labels ending in "owner/repo #n", and
+/// the widget reads the PR back from that suffix.
+enum PrChoice {
+  static func label(_ key: String) -> String {
+    let parts = key.split(separator: "#", maxSplits: 1)
+    let ref = parts.count == 2 ? "\(parts[0]) #\(parts[1])" : key
+    guard let title = Store.best(key)?.title else { return ref }
+    return "\(title) · \(ref)"
   }
 
-  let subtitle: String
-
-  init(key: String) {
-    id = key
-    let snap = Store.best(key)
-    title = snap?.title ?? key
-    subtitle = snap.map { "\($0.repo) #\(String($0.number)) · \($0.state.capitalized)" } ?? key
+  static func key(from label: String) -> String? {
+    guard let ref = label.components(separatedBy: " · ").last else { return nil }
+    let parts = ref.split(separator: " #", maxSplits: 1).map(String.init)
+    guard parts.count == 2, Int(parts[1]) != nil else { return nil }
+    return "\(parts[0])#\(parts[1])"
   }
 }
 
-struct PrQuery: EntityStringQuery {
-  func entities(for identifiers: [String]) async throws -> [PrEntity] {
-    identifiers.map(PrEntity.init(key:))
-  }
-
-  func suggestedEntities() async throws -> [PrEntity] {
-    let keys = Store.choices
-    return keys.map(PrEntity.init(key:))
-  }
-
-  func entities(matching string: String) async throws -> [PrEntity] {
-    try await suggestedEntities().filter {
-      $0.title.localizedCaseInsensitiveContains(string) || $0.id.localizedCaseInsensitiveContains(string)
-    }
-  }
-
-  func defaultResult() async -> PrEntity? {
-    Store.choices.first.map(PrEntity.init(key:))
+struct PrOptions: DynamicOptionsProvider {
+  func results() async throws -> [String] {
+    return Store.choices.map(PrChoice.label)
   }
 }
 
@@ -137,8 +119,8 @@ struct SelectPrIntent: WidgetConfigurationIntent {
   static var title: LocalizedStringResource = "Pull request"
   static var description = IntentDescription("Choose a pinned or recent pull request.")
 
-  @Parameter(title: "Pull request")
-  var pr: PrEntity?
+  @Parameter(title: "Pull request", optionsProvider: PrOptions())
+  var pr: String?
 }
 
 // MARK: - Timelines
@@ -161,7 +143,7 @@ struct PrProvider: AppIntentTimelineProvider {
   }
 
   private func resolve(_ intent: SelectPrIntent) -> PrSnapshot? {
-    let key = intent.pr?.id ?? Store.choices.first
+    let key = intent.pr.flatMap(PrChoice.key(from:)) ?? Store.choices.first
     return key.flatMap(Store.best)
   }
 }
@@ -376,3 +358,4 @@ struct PrWidgets: WidgetBundle {
     PinnedListWidget()
   }
 }
+

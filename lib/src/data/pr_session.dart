@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../diff/context_expand.dart';
 import '../diff/diff_layout.dart';
 import '../diff/diff_models.dart';
 import '../diff/line_diff.dart';
@@ -281,11 +282,58 @@ class PrSession extends ChangeNotifier {
     }
   }
 
+  final Map<String, List<String>> _headFiles = {};
+
+  /// The patch's lines and hunks of files with unchanged lines shown.
+  final Map<String, (List<DiffLine>, List<DiffHunk>)> _patches = {};
+
+  /// Whether unchanged lines were added to [f] by [expandContext].
+  bool isContextExpanded(DiffFile f) => _patches.containsKey(f.path);
+
+  /// Shows [f] as the patch had it again.
+  Expansion? collapseContext(DiffFile f) {
+    final p = _patches.remove(f.path);
+    if (p == null) return null;
+    final r = collapseTo(f.lines, f.hunks, p.$1, p.$2);
+    f.setDiff(r.lines, r.hunks);
+    revision++;
+    _notify();
+    return r;
+  }
+
+  /// Applies [expand] to [f] with the file at the PR head, split into lines,
+  /// and returns where the existing lines and hunks ended up.
+  Future<Expansion?> expandContext(
+    DiffFile f,
+    Expansion Function(List<DiffLine> lines, List<DiffHunk> hunks, List<String> newFile) expand,
+  ) async {
+    final p = pr;
+    if (p == null) return null;
+    final file = _headFiles[f.path] ??= _splitLines(await gh.getRawFile(ref, f.path, p.head.sha) ?? '');
+    f.newLength = file.length;
+    final r = expand(f.lines, f.hunks, file);
+    if (r.inserted > 0) {
+      _patches.putIfAbsent(f.path, () => (f.lines, f.hunks));
+      f.setDiff(r.lines, r.hunks);
+    }
+    revision++;
+    _notify();
+    return r;
+  }
+
+  static List<String> _splitLines(String text) {
+    if (text.isEmpty) return const [];
+    final lines = text.split('\n');
+    if (lines.last.isEmpty) lines.removeLast();
+    return lines;
+  }
+
   /// Computes the diff of a file GitHub did not return a patch for, from
   /// the full contents of both sides.
   Future<void> loadFullDiff(DiffFile f) async {
     final p = pr;
     if (p == null || f.state == PatchState.loading) return;
+    _patches.remove(f.path);
     f.state = PatchState.loading;
     f.error = null;
     revision++;

@@ -16,6 +16,7 @@ class AppDelegate: FlutterAppDelegate {
       engine.run(withEntrypoint: nil)
       RegisterGeneratedPlugins(registry: engine)
       WidgetChannel.register(with: engine.binaryMessenger)
+      FontChannel.register(with: engine.binaryMessenger)
       self.engine = engine
     } else {
       let window = MainFlutterWindow()

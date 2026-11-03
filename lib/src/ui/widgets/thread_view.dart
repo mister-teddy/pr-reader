@@ -39,17 +39,22 @@ class CommentTile extends StatelessWidget {
           children: [
             Avatar(user, size: dense ? 22 : 28),
             const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                user.login,
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      user.login,
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (badge != null) ...[const SizedBox(width: 8), badge!],
+                  const SizedBox(width: 8),
+                  Text(timeAgo(createdAt), style: muted),
+                ],
               ),
             ),
-            if (badge != null) ...[const SizedBox(width: 8), badge!],
-            const SizedBox(width: 8),
-            Text(timeAgo(createdAt), style: muted),
-            const Spacer(),
             if (url != null && url!.isNotEmpty)
               IconButton(
                 tooltip: 'Open on GitHub',

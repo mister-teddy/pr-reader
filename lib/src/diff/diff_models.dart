@@ -114,6 +114,9 @@ class DiffFile {
   PatchState state;
   String? error;
 
+  /// Line count of the file at the PR head, once it has been fetched.
+  int? newLength;
+
   /// Largest line number, for sizing the gutter.
   int maxLineNo = 0;
 

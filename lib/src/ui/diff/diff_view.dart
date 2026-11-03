@@ -30,19 +30,25 @@ class CodeMetrics {
 
   static CodeMetrics? _cache;
 
-  static CodeMetrics of(double fontSize, Color color) {
+  static CodeMetrics of(double fontSize, Color color, {String family = kCodeFont, double spacing = 1.55}) {
     final c = _cache;
-    if (c != null && c.style.fontSize == fontSize && c.style.color == color) return c;
-    final lineHeight = (fontSize * 1.55).roundToDouble();
+    final lineHeight = (fontSize * spacing).roundToDouble();
+    if (c != null &&
+        c.style.fontSize == fontSize &&
+        c.style.color == color &&
+        c.style.fontFamily == family &&
+        c.lineHeight == lineHeight) {
+      return c;
+    }
     final style = TextStyle(
-      fontFamily: kCodeFont,
+      fontFamily: family,
       fontSize: fontSize,
       height: lineHeight / fontSize,
       color: color,
       fontFeatures: const [FontFeature.disable('liga'), FontFeature.disable('calt')],
     );
     final strut = StrutStyle(
-      fontFamily: kCodeFont,
+      fontFamily: family,
       fontSize: fontSize,
       height: lineHeight / fontSize,
       forceStrutHeight: true,
@@ -80,7 +86,12 @@ class DiffView extends StatelessWidget {
     final diffTheme = DiffTheme.of(context);
     final width = constraints.maxWidth;
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(0.85, 1.6);
-    final code = CodeMetrics.of((settings.diffFontSize * scale).roundToDouble(), diffTheme.code);
+    final code = CodeMetrics.of(
+      (settings.diffFontSize * scale).roundToDouble(),
+      diffTheme.code,
+      family: codeFontFamily(settings.codeFont),
+      spacing: settings.lineSpacing.factor,
+    );
 
     final split = switch (settings.diffLayout) {
       DiffLayoutPref.split => width >= 600,

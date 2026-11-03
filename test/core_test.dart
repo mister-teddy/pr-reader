@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pr_reader/src/app/editor_theme.dart';
 import 'package:pr_reader/src/app/links.dart';
+import 'package:pr_reader/src/diff/context_expand.dart';
 import 'package:pr_reader/src/diff/diff_layout.dart';
 import 'package:pr_reader/src/diff/diff_models.dart';
 import 'package:pr_reader/src/diff/generated_files.dart';
@@ -152,6 +156,152 @@ void main() {
         diffFileFromJson({'filename': 'c', 'status': 'modified', 'changes': 9000}).state,
         PatchState.tooLarge,
       );
+    });
+  });
+
+  group('VS Code themes', () {
+    const base = '''{
+      // The included theme.
+      "type": "dark",
+      "colors": {"editor.background": "#1e1e1e", "editor.foreground": "#d4d4d4",},
+      "tokenColors": [
+        {"settings": {"foreground": "#D4D4D4"}},
+        {"scope": "keyword", "settings": {"foreground": "#569cd6"}},
+        {"scope": ["string", "meta.embedded string"], "settings": {"foreground": "#ce9178"}},
+        {"scope": "comment", "settings": {"foreground": "#6A9955", "fontStyle": "italic"}},
+      ],
+    }''';
+    const theme = '''{
+      "name": "Mine",
+      "include": "./base.json",
+      /* Overrides */
+      "colors": {"diffEditor.insertedLineBackground": "#9bb95533", "focusBorder": "#07f"},
+      "tokenColors": [
+        {"scope": "keyword.control, entity.name.function", "settings": {"foreground": "#c586c0"}},
+        {"scope": "constant.numeric", "settings": {"foreground": "#b5cea8"}},
+      ]
+    }''';
+
+    test('reads colors through includes, comments and trailing commas', () async {
+      String? asked;
+      final t = await parseEditorTheme(theme, include: (p) async => (asked = p) == './base.json' ? base : null);
+      expect(asked, './base.json');
+      expect(t.name, 'Mine');
+      expect(t.dark, isTrue);
+      expect(t['editor.background'], const Color(0xFF1E1E1E));
+      expect(t['diffEditor.insertedLineBackground'], const Color(0x339BB955));
+      expect(t['focusBorder'], const Color(0xFF0077FF));
+      expect(t.syntax[Tok.plain], const Color(0xFFD4D4D4));
+      expect(t.syntax[Tok.keyword], const Color(0xFF569CD6));
+      expect(t.syntax[Tok.string], const Color(0xFFCE9178));
+      expect(t.syntax[Tok.comment], const Color(0xFF6A9955));
+      expect(t.syntax[Tok.number], const Color(0xFFB5CEA8));
+      expect(t.syntax[Tok.func], const Color(0xFFC586C0));
+      expect(t.syntax[Tok.tag], isNull);
+      expect(EditorTheme.fromJson(jsonDecode(jsonEncode(t.toJson())))!.syntax, t.syntax);
+    });
+
+    test('works without the included file', () async {
+      final t = await parseEditorTheme(theme, include: (_) async => null);
+      expect(t.syntax[Tok.keyword], const Color(0xFFC586C0));
+      expect(t['editor.background'], isNull);
+    });
+
+    test('keeps slashes inside strings', () {
+      expect(jsonDecode(stripJsonComments('{"a": "http://x/*y*/", // c\n "b": [1,],}')), {
+        'a': 'http://x/*y*/',
+        'b': [1],
+      });
+    });
+  });
+
+  group('expandAbove', () {
+    // New file lines 1..30; the patch changes line 10 and inserts after 20.
+    final file = [for (var i = 1; i <= 30; i++) 'line $i'];
+    const patch =
+        '@@ -9,3 +9,3 @@ fn a\n line 9\n-old 10\n+line 10\n line 11\n'
+        '@@ -20,0 +21,2 @@ fn b\n+line 21\n+line 22\n';
+
+    test('shows the lines above the first hunk', () {
+      final p = parsePatch(patch);
+      expect(hiddenAbove(p.hunks, 0), 8);
+      final r = expandAbove(p.lines, p.hunks, 0, file, count: 3);
+      expect(r.inserted, 3);
+      expect(
+        [for (final l in r.lines.take(3)) (l.oldNo, l.newNo, l.text)],
+        [(6, 6, 'line 6'), (7, 7, 'line 7'), (8, 8, 'line 8')],
+      );
+      expect(r.hunks[0].header, '@@ -6,6 +6,6 @@ fn a');
+      expect(r.hunks[1].start, p.hunks[1].start + 3);
+      expect(hiddenAbove(r.hunks, 0), 5);
+    });
+
+    test('fills the gap between hunks and merges them', () {
+      final p = parsePatch(patch);
+      // Hunk 1 covers new lines 9-11; hunk 2 inserts 21-22, so 12-20 are hidden.
+      expect(hiddenAbove(p.hunks, 1), 9);
+      final partial = expandAbove(p.lines, p.hunks, 1, file, count: 4);
+      expect(partial.hunks, hasLength(2));
+      expect(partial.hunks[1].header, '@@ -17,4 +17,6 @@ fn b');
+      final r = expandAbove(partial.lines, partial.hunks, 1, file);
+      expect(r.hunks, hasLength(1));
+      expect(r.hunk(1), 0);
+      expect(r.hunks[0].header, '@@ -9,12 +9,14 @@ fn a');
+      expect(r.lines.where((l) => l.kind == LineKind.context && l.newNo == 12).single.oldNo, 12);
+      expect(r.hunks[0].end, r.lines.length);
+    });
+
+    test('shows the lines after the last hunk', () {
+      final p = parsePatch(patch);
+      expect(hiddenBelow(p.hunks, file.length), 8);
+      final r = expandBelow(p.lines, p.hunks, file, count: 5);
+      expect(r.hunks.last.header, '@@ -20,5 +21,7 @@ fn b');
+      expect(
+        [for (final l in r.lines.reversed.take(2)) (l.oldNo, l.newNo, l.text)],
+        [(25, 27, 'line 27'), (24, 26, 'line 26')],
+      );
+      expect(hiddenBelow(r.hunks, file.length), 3);
+      expect(r.line(0), 0);
+    });
+
+    test('expands down from a hunk and merges with the next', () {
+      final p = parsePatch(patch);
+      final down = expandAfter(p.lines, p.hunks, 0, file, count: 5);
+      expect(down.hunks[0].header, '@@ -9,8 +9,8 @@ fn a');
+      expect(down.lines[p.hunks[0].end].newNo, 12);
+      expect(down.line(p.hunks[1].start), p.hunks[1].start + 5);
+      final r = expandAfter(down.lines, down.hunks, 0, file);
+      expect(r.hunks.single.header, '@@ -9,12 +9,14 @@ fn a');
+      expect(r.hunk(1), 0);
+    });
+
+    test('collapses back to the patch', () {
+      final p = parsePatch(patch);
+      final a = expandAbove(p.lines, p.hunks, 1, file, count: 4);
+      final b = expandWhole(a.lines, a.hunks, file);
+      final r = collapseTo(b.lines, b.hunks, p.lines, p.hunks);
+      expect(r.lines, same(p.lines));
+      expect(r.hunks, same(p.hunks));
+      expect(r.inserted, p.lines.length - b.lines.length);
+      for (var i = 0; i < p.lines.length; i++) {
+        expect(r.line(b.line(a.line(i))), i);
+      }
+      expect(r.line(0), 0);
+      expect(r.hunk(0), 0);
+    });
+
+    test('shows the whole file as one hunk', () {
+      final p = parsePatch(patch);
+      final r = expandWhole(p.lines, p.hunks, file);
+      expect(r.hunks.single.header, '@@ -1,28 +1,30 @@');
+      expect([
+        for (final l in r.lines)
+          if (l.kind != LineKind.del) l.text,
+      ], file);
+      expect(r.lines.where((l) => l.newNo == 30).single.oldNo, 28);
+      expect(r.line(0), 8);
+      expect(r.lines[r.line(p.hunks[1].start)].text, 'line 21');
+      expect(r.hunk(1), 0);
     });
   });
 

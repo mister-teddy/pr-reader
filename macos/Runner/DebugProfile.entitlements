@@ -14,6 +14,18 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/Applications/</string>
+	</array>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/.vscode/extensions/</string>
+		<string>/.vscode-insiders/extensions/</string>
+		<string>/.cursor/extensions/</string>
+		<string>/.vscode-oss/extensions/</string>
+		<string>/.windsurf/extensions/</string>
+	</array>
 	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
 	<array>
 		<string>/Library/Application Support/de.reonic.prReader.widgets/</string>
