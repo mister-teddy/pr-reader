@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/links.dart';
@@ -25,11 +27,51 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _loadedFor;
   Future<List<PullSummary>>? _review;
   Future<List<PullSummary>>? _mine;
+  bool _refreshing = false;
+  Timer? _poll;
+  AppLifecycleListener? _lifecycle;
+
+  /// How often the inbox is re-fetched while the app is in the foreground.
+  static const _pollInterval = Duration(minutes: 2);
+
+  @override
+  void initState() {
+    super.initState();
+    _poll = Timer.periodic(_pollInterval, (_) => _refresh());
+    // Refresh as soon as the user comes back to the app, so the list is current.
+    _lifecycle = AppLifecycleListener(onResume: _refresh);
+  }
 
   @override
   void dispose() {
+    _poll?.cancel();
+    _lifecycle?.dispose();
     _input.dispose();
     super.dispose();
+  }
+
+  /// Re-fetches both inbox lists. The previous results stay on screen until
+  /// the new ones arrive (FutureBuilder keeps its last data while waiting).
+  Future<void> _refresh() async {
+    if (!mounted || _refreshing) return;
+    final s = AppScope.of(context);
+    if (s.settings.token == null) return;
+    // Skip background polls while another screen (e.g. a PR) is on top.
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    _fetch(s);
+    setState(() => _refreshing = true);
+    try {
+      await Future.wait([?_review, ?_mine]);
+    } catch (_) {
+      // Errors are shown by the sections themselves.
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  void _fetch(AppServices s) {
+    _review = s.gh.searchPulls('is:open archived:false review-requested:@me', perPage: 10);
+    _mine = s.gh.searchPulls('is:open archived:false author:@me', perPage: 10);
   }
 
   void _open(String text) {
@@ -50,8 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _review = _mine = null;
       return;
     }
-    _review = s.gh.searchPulls('is:open archived:false review-requested:@me', perPage: 10);
-    _mine = s.gh.searchPulls('is:open archived:false author:@me', perPage: 10);
+    _fetch(s);
   }
 
   @override
@@ -74,11 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ];
           return SafeArea(
             child: RefreshIndicator(
-              onRefresh: () async {
-                _loadedFor = '';
-                setState(() {});
-                await Future.wait([?_review, ?_mine]);
-              },
+              onRefresh: _refresh,
               child: ListView(
                 padding: EdgeInsets.fromLTRB(pad, 8, pad, 40),
                 children: [
@@ -87,7 +124,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _TopBar(services: services),
+                        _TopBar(
+                          services: services,
+                          refreshing: _refreshing,
+                          onRefresh: settings.token == null ? null : _refresh,
+                        ),
                         SizedBox(height: size == WindowSize.compact ? 20 : 48),
                         _Hero(
                           input: _input,
@@ -127,9 +168,11 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.services});
+  const _TopBar({required this.services, required this.refreshing, required this.onRefresh});
 
   final AppServices services;
+  final bool refreshing;
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +200,14 @@ class _TopBar extends StatelessWidget {
                 ? const SizedBox.shrink()
                 : Padding(padding: const EdgeInsets.only(right: 4), child: Avatar(user, size: 30)),
           ),
+          if (onRefresh != null)
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: refreshing ? null : onRefresh,
+              icon: refreshing
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh_rounded),
+            ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () => Navigator.pushNamed(context, '/settings'),
